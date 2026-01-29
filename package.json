@@ -1,0 +1,42 @@
+{
+  "name": "phantom-melody",
+  "version": "1.0.0",
+  "description": "Discord.js music bot with Honor Points integration",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "watch": "tsc --watch",
+    "deploy": "ts-node src/deploy-commands.ts",
+    "deploy:prod": "node dist/deploy-commands.js",
+    "clear-commands": "ts-node src/clear-commands.ts"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "music",
+    "discord.js"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/opus": "^0.9.0",
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "ffmpeg-static": "^5.2.0",
+    "mongoose": "^8.0.3",
+    "node-cron": "^4.2.1",
+    "play-dl": "^1.9.7",
+    "sodium-native": "^4.0.4",
+    "libsodium-wrappers": "^0.7.15"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "@types/node-cron": "^3.0.11",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

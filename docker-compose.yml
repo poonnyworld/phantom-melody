@@ -1,0 +1,24 @@
+services:
+  phantom-melody:
+    build: .
+    container_name: phantom-melody-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      # Override MONGO_URI to use MongoDB from Honor Bot container
+      - MONGO_URI=mongodb://mongodb:27017/honorbot
+    env_file:
+      - .env
+    volumes:
+      # Mount music folder for easy updates without rebuilding
+      - ./music:/app/music:ro
+    # Connect to Honor Bot's network to share MongoDB
+    networks:
+      - honorbot-network
+    # No port exposed - Discord bot doesn't need web server
+
+networks:
+  # Use external network from Honor Bot (check actual network name with: docker network ls)
+  honorbot-network:
+    external: true
+    name: honorbot-pbz_default
