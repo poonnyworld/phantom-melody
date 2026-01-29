@@ -52,6 +52,7 @@ export class MusicInteractionService {
     const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
     const displayChannelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
     const honorChannelId = process.env.PHANTOM_MELODY_HONOR_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const addChannelId = process.env.PHANTOM_MELODY_ADD_CHANNEL_ID;
 
     if (!controlChannelId || !displayChannelId || !honorChannelId) {
       console.warn('[MusicInteractionService] Channel IDs not set, skipping button setup.');
@@ -66,6 +67,11 @@ export class MusicInteractionService {
 
     // Setup Honor Point buttons (in honor channel)
     await this.ensureHonorButtons(client, honorChannelId);
+
+    // Setup Add Song buttons (in add channel - optional)
+    if (addChannelId) {
+      await this.ensureAddSongButtons(client, addChannelId);
+    }
 
     // Display channel is now handled by MusicLogService
     // No need to create a separate "Display Channel" embed
@@ -421,6 +427,133 @@ export class MusicInteractionService {
     }
   }
 
+  /**
+   * Setup Add Song buttons (bottom-based UX: add songs via buttons in dedicated channel)
+   */
+  private async ensureAddSongButtons(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        console.error(`[MusicInteractionService] ❌ Add song channel ${channelId} not found or not text-based.`);
+        return;
+      }
+
+      const textChannel = channel as TextChannel;
+
+      const botMember = await textChannel.guild.members.fetch(client.user!.id);
+      const permissions = textChannel.permissionsFor(botMember);
+      if (!permissions || !permissions.has('SendMessages') || !permissions.has('ViewChannel')) {
+        console.error(`[MusicInteractionService] ❌ Bot lacks permissions in add song channel ${channelId}.`);
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle('➕ Add Songs')
+        .setDescription(
+          '**Add songs with the buttons below!**\n\n' +
+          '• Choose a **category** to **save** the song to the database and add it to that playlist.\n' +
+          '• **Play URL Only** adds the song to the queue and plays it without saving.\n\n' +
+          '💡 You must be in the voice channel to play. One request at a time per server.'
+        )
+        .setFooter({ text: 'Use the buttons below to add songs!' })
+        .setTimestamp();
+
+      const battleBtn = new ButtonBuilder()
+        .setCustomId('add_song_battle')
+        .setLabel('Battle')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('⚔️');
+      const storyBtn = new ButtonBuilder()
+        .setCustomId('add_song_story')
+        .setLabel('Story')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📖');
+      const explorationBtn = new ButtonBuilder()
+        .setCustomId('add_song_exploration')
+        .setLabel('Exploration')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🗺️');
+      const emotionalBtn = new ButtonBuilder()
+        .setCustomId('add_song_emotional')
+        .setLabel('Emotional')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('💫');
+      const ambientBtn = new ButtonBuilder()
+        .setCustomId('add_song_ambient')
+        .setLabel('Ambient')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🌙');
+
+      const row1 = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(battleBtn, storyBtn, explorationBtn, emotionalBtn, ambientBtn);
+
+      const hiddenBtn = new ButtonBuilder()
+        .setCustomId('add_song_hidden')
+        .setLabel('Hidden')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('🔮');
+      const playOnlyBtn = new ButtonBuilder()
+        .setCustomId('add_song_play_only')
+        .setLabel('Play URL Only')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('▶️');
+
+      const row2 = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(hiddenBtn, playOnlyBtn);
+
+      let buttonMessage: Message | null = null;
+      const storedMessageId = this.buttonMessageIds.get(`${channelId}_addsong`);
+
+      if (storedMessageId) {
+        try {
+          const storedMessage = await textChannel.messages.fetch(storedMessageId);
+          if (storedMessage) buttonMessage = storedMessage;
+        } catch {
+          this.buttonMessageIds.delete(`${channelId}_addsong`);
+        }
+      }
+
+      if (!buttonMessage) {
+        const messages = await textChannel.messages.fetch({ limit: 50 });
+        for (const [id, msg] of messages) {
+          if (msg.author.id === client.user!.id) {
+            const hasAddSong = msg.components.some((row: any) =>
+              row.components.some((c: any) => c.type === 2 && c.customId === 'add_song_battle')
+            );
+            if (hasAddSong) {
+              buttonMessage = msg;
+              this.buttonMessageIds.set(`${channelId}_addsong`, id);
+              break;
+            }
+          }
+        }
+      }
+
+      if (buttonMessage) {
+        try {
+          await buttonMessage.edit({ embeds: [embed], components: [row1, row2] });
+          console.log(`[MusicInteractionService] ✓ Add song button message updated`);
+        } catch (error) {
+          console.error(`[MusicInteractionService] ❌ Error editing add song message:`, error);
+          this.buttonMessageIds.delete(`${channelId}_addsong`);
+          buttonMessage = null;
+        }
+      }
+
+      if (!buttonMessage) {
+        try {
+          const newMessage = await textChannel.send({ embeds: [embed], components: [row1, row2] });
+          this.buttonMessageIds.set(`${channelId}_addsong`, newMessage.id);
+          console.log(`[MusicInteractionService] ✓ Add song button message sent`);
+        } catch (error) {
+          console.error(`[MusicInteractionService] ❌ Error sending add song message:`, error);
+        }
+      }
+    } catch (error) {
+      console.error(`[MusicInteractionService] ❌ Critical error setting up add song buttons:`, error);
+    }
+  }
 
   /**
    * Clear all button message IDs (for cleanup)

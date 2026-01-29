@@ -1,28 +1,45 @@
-import { Events, Interaction, ButtonInteraction, StringSelectMenuInteraction, EmbedBuilder, MessageFlags, GuildMember } from 'discord.js';
+import {
+  Events,
+  Interaction,
+  ButtonInteraction,
+  StringSelectMenuInteraction,
+  ModalSubmitInteraction,
+  EmbedBuilder,
+  MessageFlags,
+  GuildMember,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+} from 'discord.js';
 import { client } from '../index';
 import { isDBConnected } from '../utils/connectDB';
 import { honorPointService } from '../services/HonorPointService';
 import { DEFAULT_PLAYLISTS } from '../config/playlists';
+import { tryAcquire, release } from '../utils/ConcurrencyGuard';
 
 export const name = Events.InteractionCreate;
 export const once = false;
 
+const ADD_SONG_CATEGORIES = ['battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden'] as const;
+
 export async function execute(interaction: Interaction) {
-  // Handle button interactions
   if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
     return;
   }
 
-  // Handle select menu interactions
   if (interaction.isStringSelectMenu()) {
     await handleSelectMenuInteraction(interaction);
     return;
   }
 
-  // Autocomplete interactions
+  if (interaction.isModalSubmit()) {
+    await handleModalSubmit(interaction);
+    return;
+  }
+
   if (interaction.isAutocomplete()) {
-    // Handle autocomplete for track searches
     return;
   }
 }
@@ -79,6 +96,23 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     await handleBalanceButton(interaction);
     return;
   }
+
+  // Save YouTube track button
+  if (customId.startsWith('save_youtube_')) {
+    await handleSaveYouTubeButton(interaction);
+    return;
+  }
+
+  // Add Song channel buttons (bottom-based UX)
+  if (customId === 'add_song_play_only') {
+    await showAddSongModal(interaction, null);
+    return;
+  }
+  if (ADD_SONG_CATEGORIES.some(c => customId === `add_song_${c}`)) {
+    const category = customId.replace('add_song_', '') as typeof ADD_SONG_CATEGORIES[number];
+    await showAddSongModal(interaction, category);
+    return;
+  }
 }
 
 /**
@@ -89,6 +123,242 @@ async function handleSelectMenuInteraction(interaction: StringSelectMenuInteract
     await handlePlaylistSelect(interaction);
     return;
   }
+}
+
+/**
+ * Handle modal submissions (Add Song flow)
+ */
+async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  const customId = interaction.customId;
+  if (!customId.startsWith('add_song_modal_')) return;
+
+  if (!interaction.guild) {
+    await interaction.reply({ content: '❌ Use this in a server.', ephemeral: true });
+    return;
+  }
+
+  const guildId = interaction.guild.id;
+  const action = 'add_song';
+
+    if (!tryAcquire(guildId, action)) {
+    await interaction.reply({
+      content: '⏳ Another add-song or play request is in progress. Please wait a moment and try again.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  try {
+    if (customId === 'add_song_modal_play_only') {
+      await handleAddSongModalPlayOnly(interaction);
+    } else {
+      const category = customId.replace('add_song_modal_', '') as typeof ADD_SONG_CATEGORIES[number];
+      if (ADD_SONG_CATEGORIES.includes(category)) {
+        await handleAddSongModalSave(interaction, category);
+      }
+    }
+  } finally {
+    release(guildId);
+  }
+}
+
+/**
+ * Show modal for adding a song (from Add Song channel buttons)
+ */
+async function showAddSongModal(
+  interaction: ButtonInteraction,
+  category: typeof ADD_SONG_CATEGORIES[number] | null
+): Promise<void> {
+  const isPlayOnly = category === null;
+  const modalCustomId = isPlayOnly ? 'add_song_modal_play_only' : `add_song_modal_${category}`;
+  const modalTitle = isPlayOnly ? 'Play YouTube URL' : `Add song to ${category.charAt(0).toUpperCase() + category.slice(1)}`;
+
+  const urlInput = new TextInputBuilder()
+    .setCustomId('url')
+    .setLabel('YouTube URL')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('https://www.youtube.com/watch?v=...')
+    .setRequired(true)
+    .setMaxLength(500);
+
+  const urlRow = new ActionRowBuilder<TextInputBuilder>().addComponents(urlInput);
+
+  const modal = new ModalBuilder()
+    .setCustomId(modalCustomId)
+    .setTitle(modalTitle)
+    .addComponents(urlRow);
+
+  if (!isPlayOnly) {
+    const titleInput = new TextInputBuilder()
+      .setCustomId('title')
+      .setLabel('Title (optional)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Leave blank to use YouTube title')
+      .setRequired(false)
+      .setMaxLength(200);
+    const artistInput = new TextInputBuilder()
+      .setCustomId('artist')
+      .setLabel('Artist (optional)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Leave blank to use channel name')
+      .setRequired(false)
+      .setMaxLength(200);
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(titleInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(artistInput)
+    );
+  }
+
+  await interaction.showModal(modal);
+}
+
+/**
+ * Handle "Play URL Only" modal submit: add to queue and play, do not save
+ */
+async function handleAddSongModalPlayOnly(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  if (!interaction.guild) return;
+
+  const member = interaction.member as GuildMember;
+  const voiceChannel = member.voice.channel;
+  if (!voiceChannel) {
+    await interaction.editReply({ content: '🎵 You need to be in a voice channel to play music!' });
+    return;
+  }
+
+  let url = interaction.fields.getTextInputValue('url').trim();
+  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
+    await interaction.editReply({ content: '❌ Invalid YouTube URL. Use a valid YouTube link.' });
+    return;
+  }
+  // Normalize so YouTubeService and MusicPlayer don't get invalid URL
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url.replace(/^\/+/, '');
+  }
+
+  try {
+    const { getVideoInfo } = await import('../services/YouTubeService');
+    const videoInfo = await getVideoInfo(url);
+    if (!videoInfo?.videoDetails) {
+      await interaction.editReply({ content: '❌ Could not load video. It may be private or unavailable.' });
+      return;
+    }
+
+    const vd = videoInfo.videoDetails;
+    const track = {
+      trackId: `temp-${Date.now()}`,
+      title: vd.title || 'Unknown Title',
+      artist: vd.author?.name || 'Unknown Artist',
+      youtubeUrl: url,
+      audioSource: 'youtube' as const,
+      duration: parseInt(vd.lengthSeconds) || 0,
+      category: 'battle' as const,
+      description: vd.description || '',
+      instruments: [],
+      isHidden: false,
+      playCount: 0,
+      monthlyPlayCount: 0,
+      upvotes: 0,
+      monthlyUpvotes: 0,
+      pinCount: 0,
+      monthlyPinCount: 0,
+      upvotedBy: [],
+    };
+
+    const queueManager = client.queueManager;
+    const player = await queueManager.getOrCreatePlayer(interaction.guild.id, voiceChannel as any, interaction.channelId);
+    await player.addToQueue(track, interaction.user.id);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎵 Added to Queue')
+      .setDescription(`**${track.title}**`)
+      .addFields(
+        { name: 'Artist', value: track.artist || 'Unknown', inline: true },
+        { name: 'Position', value: `#${player.getQueueLength()}`, inline: true }
+      )
+      .setColor(0x9B59B6)
+      .setFooter({ text: `Requested by ${interaction.user.username}` });
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error: any) {
+    console.error('[Add Song Play Only] Error:', error);
+    await interaction.editReply({
+      content: `❌ Error: ${error.message || 'Could not add song.'}`,
+    });
+  }
+}
+
+/**
+ * Handle "Add song to category" modal submit: save to DB, add to playlist, and add to queue
+ */
+async function handleAddSongModalSave(
+  interaction: ModalSubmitInteraction,
+  category: typeof ADD_SONG_CATEGORIES[number]
+): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  if (!interaction.guild) return;
+
+  const member = interaction.member as GuildMember;
+  const voiceChannel = member.voice.channel;
+
+  const url = interaction.fields.getTextInputValue('url').trim();
+  const customTitle = interaction.fields.getTextInputValue('title')?.trim() || undefined;
+  const customArtist = interaction.fields.getTextInputValue('artist')?.trim() || undefined;
+
+  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
+    await interaction.editReply({ content: '❌ Invalid YouTube URL. Use a valid YouTube link.' });
+    return;
+  }
+
+  if (!isDBConnected()) {
+    await interaction.editReply({ content: '❌ Database is not connected. Try again later.' });
+    return;
+  }
+
+  const queueManager = client.queueManager;
+  const result = await queueManager.saveYouTubeTrack(url, category, customTitle, customArtist);
+
+  if (!result.success) {
+    await interaction.editReply({
+      content: `❌ ${result.error || 'Could not save track.'}`,
+    });
+    return;
+  }
+
+  const track = result.track!;
+  // Pass plain object so MusicPlayer always gets a string youtubeUrl (avoids Mongoose getter/ERR_INVALID_URL)
+  const trackForQueue = (track as any).toObject
+    ? (track as any).toObject()
+    : { ...track, youtubeUrl: track.youtubeUrl };
+
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Track Saved & Added to Queue')
+    .setDescription(`**${track.title}**`)
+    .addFields(
+      { name: 'Artist', value: track.artist || 'Unknown', inline: true },
+      { name: 'Category', value: category, inline: true },
+      { name: 'Track ID', value: `\`${track.trackId}\``, inline: true }
+    )
+    .setColor(0x9B59B6)
+    .setFooter({ text: `Added by ${interaction.user.username}` });
+
+  // If user is in voice channel, add to queue and play
+  if (voiceChannel) {
+    try {
+      const player = await queueManager.getOrCreatePlayer(interaction.guild!.id, voiceChannel as any, interaction.channelId);
+      await player.addToQueue(trackForQueue, interaction.user.id);
+      embed.setDescription(`**${track.title}**\n\n✅ Saved to database and added to queue.`);
+    } catch (e) {
+      embed.setDescription(`**${track.title}**\n\n✅ Saved to database. Join a voice channel and use Playlist or /play to play.`);
+    }
+  }
+
+  await interaction.editReply({ embeds: [embed] });
+
+  const { musicLogService } = await import('../services/MusicLogService');
+  musicLogService.addLog(`Track added via channel: ${track.title} (${category})`, 'info');
 }
 
 // Button handlers
@@ -116,11 +386,10 @@ async function handlePlayPauseButton(interaction: ButtonInteraction): Promise<vo
     return;
   }
 
-  // Toggle play/pause based on current state
-  const isPlaying = player.getIsPlaying();
-  
-  if (isPlaying) {
-    // Currently playing, try to pause
+  // Toggle play/pause based on actual playback state (Playing vs Paused)
+  const state = player.getPlaybackState();
+
+  if (state === 'playing') {
     const paused = player.pause();
     if (paused) {
       const { musicLogService } = await import('../services/MusicLogService');
@@ -129,16 +398,17 @@ async function handlePlayPauseButton(interaction: ButtonInteraction): Promise<vo
     } else {
       await interaction.editReply({ content: '❌ Could not pause music.' });
     }
-  } else {
-    // Not playing, try to resume
+  } else if (state === 'paused') {
     const resumed = player.resume();
     if (resumed) {
       const { musicLogService } = await import('../services/MusicLogService');
       musicLogService.addLog('Music resumed', 'info');
       await interaction.editReply({ content: '▶️ Music resumed!' });
     } else {
-      await interaction.editReply({ content: '❌ Could not resume music. Music might not be paused.' });
+      await interaction.editReply({ content: '❌ Could not resume music.' });
     }
+  } else {
+    await interaction.editReply({ content: '❌ No track is playing. Select a playlist or use /play first!' });
   }
 }
 
@@ -367,12 +637,20 @@ async function handlePlaylistSelect(interaction: StringSelectMenuInteraction): P
   const { musicLogService } = await import('../services/MusicLogService');
   musicLogService.addLog(`Playlist selected: ${playlistConfig?.name || category} (${tracks.length} tracks)`, 'success');
 
+  // Build track list for embed (Discord field value limit 1024 chars)
+  const maxList = 15;
+  const listLines = tracks.slice(0, maxList).map((t: { title: string; artist?: string }, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`);
+  const trackListText = listLines.length > 0
+    ? listLines.join('\n') + (tracks.length > maxList ? `\n... and ${tracks.length - maxList} more` : '')
+    : '—';
+
   const embed = new EmbedBuilder()
     .setTitle(`${playlistConfig?.emoji || '🎵'} ${playlistConfig?.name || category} Playlist`)
     .setDescription(playlistConfig?.description || `Playing ${category} music`)
     .addFields(
       { name: 'Tracks', value: tracks.length.toString(), inline: true },
-      { name: 'Mode', value: 'Shuffled', inline: true }
+      { name: 'Mode', value: 'Shuffled', inline: true },
+      { name: '📋 Songs in this playlist', value: trackListText.slice(0, 1024), inline: false }
     )
     .setColor(category === 'hidden' ? 0xFFD700 : 0x9B59B6)
     .setFooter({ text: `Started by ${interaction.user.username}` });
@@ -592,6 +870,157 @@ async function handleBalanceButton(interaction: ButtonInteraction): Promise<void
     console.error('[Balance Button] Error:', error);
     await interaction.editReply({
       content: '❌ An error occurred while fetching your balance.',
+    });
+  }
+}
+
+async function handleSaveYouTubeButton(interaction: ButtonInteraction): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (!interaction.guild) {
+    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
+    return;
+  }
+
+  if (!isDBConnected()) {
+    await interaction.editReply({ 
+      content: '❌ Database is not connected. Please try again later.', 
+    });
+    return;
+  }
+
+  try {
+    // Parse customId: save_youtube_{videoId}_{encodedUrl}
+    const customId = interaction.customId;
+    const parts = customId.split('_');
+    
+    if (parts.length < 4) {
+      await interaction.editReply({
+        content: '❌ Invalid button data. Please use `/addtrack` command instead.',
+      });
+      return;
+    }
+
+    // Reconstruct encoded URL (everything after save_youtube_{videoId}_)
+    const videoId = parts[2];
+    const encodedUrl = customId.substring(`save_youtube_${videoId}_`.length);
+    const youtubeUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
+
+    // Check if track already exists
+    const { Track } = await import('../models/Track');
+    const existingTrack = await Track.findOne({ youtubeUrl });
+    
+    if (existingTrack) {
+      await interaction.editReply({
+        content: `✅ This track is already saved!\n\n**Track:** ${existingTrack.title}\n**Track ID:** \`${existingTrack.trackId}\`\n**Category:** ${existingTrack.category}\n\nUse \`/addtoplaylist trackid:${existingTrack.trackId} category:${existingTrack.category}\` to add it to a playlist.`,
+      });
+      return;
+    }
+
+    // Check if trackId already exists
+    const trackId = `youtube-${videoId}`;
+    const existingById = await Track.findOne({ trackId });
+    if (existingById) {
+      await interaction.editReply({
+        content: `✅ A track with this video ID already exists!\n\n**Track:** ${existingById.title}\n**Track ID:** \`${existingById.trackId}\`\n**YouTube URL:** ${existingById.youtubeUrl}`,
+      });
+      return;
+    }
+
+    // Fetch video info (YouTubeService / youtubei.js)
+    const { getVideoInfo } = await import('../services/YouTubeService');
+    const videoInfo = await getVideoInfo(youtubeUrl);
+
+    if (!videoInfo || !videoInfo.videoDetails) {
+      await interaction.editReply({
+        content: `❌ Could not fetch video information. The video may be private or deleted.`,
+      });
+      return;
+    }
+
+    const videoDetails = videoInfo.videoDetails;
+    const title = videoDetails.title || 'Unknown Title';
+    const artist = videoDetails.author?.name || 'Unknown Artist';
+    const duration = parseInt(videoDetails.lengthSeconds) || 0;
+    const description = videoDetails.description?.substring(0, 500) || '';
+
+    // Create new track with default category 'battle'
+    const newTrack = new Track({
+      trackId,
+      title,
+      artist,
+      youtubeUrl,
+      audioSource: 'youtube',
+      duration,
+      category: 'battle', // Default category
+      description,
+      instruments: [],
+      isHidden: false,
+      playCount: 0,
+      monthlyPlayCount: 0,
+      upvotes: 0,
+      monthlyUpvotes: 0,
+      pinCount: 0,
+      monthlyPinCount: 0,
+      upvotedBy: [],
+    });
+
+    await newTrack.save();
+
+    // Add to playlist
+    const { Playlist } = await import('../models/Playlist');
+    let playlist = await Playlist.findOne({ category: 'battle', isDefault: true });
+    
+    if (!playlist) {
+      playlist = new Playlist({
+        name: 'Battle Music',
+        category: 'battle',
+        description: 'Default battle playlist',
+        trackIds: [trackId],
+        shuffledOrder: [trackId],
+        isDefault: true,
+        lastShuffled: new Date(),
+      });
+      await playlist.save();
+    } else {
+      if (!playlist.trackIds.includes(trackId)) {
+        playlist.trackIds.push(trackId);
+        playlist.shuffledOrder.push(trackId);
+        await playlist.save();
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('✅ Track Saved Successfully!')
+      .setDescription(`**${title}**\n\n✅ Saved to database and added to **Battle** playlist.\n\n💡 Use \`/addtoplaylist trackid:${trackId} category:<category>\` to add it to other playlists.`)
+      .addFields(
+        { name: 'Artist', value: artist, inline: true },
+        { name: 'Category', value: 'battle (default)', inline: true },
+        { name: 'Track ID', value: `\`${trackId}\``, inline: true },
+        { name: 'Duration', value: duration > 0 ? `${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')}` : 'Unknown', inline: true }
+      )
+      .setColor(0x9B59B6)
+      .setFooter({ text: `Saved by ${interaction.user.username}` });
+
+    await interaction.editReply({ embeds: [embed] });
+
+    // Log the addition
+    const { musicLogService } = await import('../services/MusicLogService');
+    musicLogService.addLog(`Track saved via button: ${title} by ${artist}`, 'info');
+
+  } catch (error: any) {
+    console.error('[Save YouTube Button] Error:', error);
+    
+    let errorMessage = '❌ An error occurred while saving the track.';
+    
+    if (error.message?.includes('duplicate key')) {
+      errorMessage = '❌ A track with this ID already exists in the database.';
+    } else if (error.message) {
+      errorMessage = `❌ Error: ${error.message}`;
+    }
+    
+    await interaction.editReply({
+      content: errorMessage,
     });
   }
 }

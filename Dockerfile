@@ -1,10 +1,16 @@
-FROM node:18-slim
+FROM node:20-slim
 
-# Install ffmpeg and dependencies for audio processing
-RUN apt-get update && apt-get install -y \
+# Install ffmpeg, curl, yt-dlp, and deps for @discordjs/opus native build (arm64 needs compile)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    curl \
+    ca-certificates \
     python3 \
-    build-essential \
+    make \
+    g++ \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

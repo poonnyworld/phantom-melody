@@ -13,7 +13,7 @@ import {
   StreamType,
 } from '@discordjs/voice';
 import { Client, Guild, VoiceChannel } from 'discord.js';
-import play from 'play-dl';
+import { getAudioStream, extractVideoId } from './YouTubeService';
 import { Track, ITrack } from '../models/Track';
 import { isDBConnected } from '../utils/connectDB';
 import { setUserCurrentTrack } from '../events/voiceStateUpdate';
@@ -361,32 +361,63 @@ export class MusicPlayer {
   }
 
   /**
-   * Create audio resource from YouTube URL
+   * Extract YouTube video ID from URL (handles youtube.com and youtu.be)
+   */
+  private extractVideoId(url: string): string | null {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+      /[?&]v=([a-zA-Z0-9_-]{11})/,
+    ];
+    for (const re of patterns) {
+      const m = url.match(re);
+      if (m && m[1]) return m[1];
+    }
+    return null;
+  }
+
+  /**
+   * Build a canonical YouTube URL from raw input (avoids ERR_INVALID_URL from malformed URLs)
+   */
+  private toCanonicalYouTubeUrl(input: string): string | null {
+    let url = String(input ?? '')
+      .trim()
+      .replace(/[\s\u200B-\u200D\uFEFF]/g, ''); // strip spaces and zero-width chars
+    if (!url || url === 'undefined' || url === 'null') return null;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url.replace(/^\/+/, '');
+    const videoId = this.extractVideoId(url);
+    if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+    try {
+      new URL(url);
+      return url;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create audio resource from YouTube URL (via YouTubeService / youtubei.js)
    */
   private async createYouTubeAudioResource(item: QueueItem) {
-    const url = String(item.track.youtubeUrl).trim();
-    
-    console.log(`[MusicPlayer] URL after String() and trim(): "${url}"`);
-    
-    // Validate URL
-    if (!url || url === 'undefined' || url === 'null' || url === '') {
-      throw new Error(`Track "${item.track.title}" has invalid YouTube URL: ${url}`);
+    const rawUrl = String(item.track.youtubeUrl ?? '').trim();
+    const url = this.toCanonicalYouTubeUrl(rawUrl);
+
+    console.log(`[MusicPlayer] Canonical URL: "${url}"`);
+
+    if (!url) {
+      throw new Error(`Track "${item.track.title}" has invalid YouTube URL`);
     }
 
-    // Check if URL is a valid YouTube URL
-    if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
-      throw new Error(`Track "${item.track.title}" has invalid YouTube URL format: ${url}`);
+    const videoId = extractVideoId(url);
+    if (!videoId) {
+      throw new Error(`Track "${item.track.title}" has invalid YouTube URL`);
     }
 
-    console.log(`[MusicPlayer] URL validation passed, attempting to stream: ${url}`);
+    console.log(`[MusicPlayer] Fetching audio stream via yt-dlp for: ${url}`);
+    const stream = getAudioStream(videoId);
+    console.log(`[MusicPlayer] Stream created successfully`);
 
-    // Get audio stream from YouTube
-    console.log(`[MusicPlayer] Calling play.stream() with URL: ${url}`);
-    const stream = await play.stream(url);
-    console.log(`[MusicPlayer] Stream obtained successfully, type: ${stream.type}`);
-    
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type,
+    const resource = createAudioResource(stream, {
+      inputType: StreamType.Arbitrary,
     });
 
     return resource;
@@ -449,5 +480,13 @@ export class MusicPlayer {
 
   getIsPlaying(): boolean {
     return this.isPlaying;
+  }
+
+  /** Current playback state for Pause/Play toggle (uses actual audio player status) */
+  getPlaybackState(): 'playing' | 'paused' | 'idle' {
+    const status = this.audioPlayer.state.status;
+    if (status === AudioPlayerStatus.Playing) return 'playing';
+    if (status === AudioPlayerStatus.Paused) return 'paused';
+    return 'idle';
   }
 }

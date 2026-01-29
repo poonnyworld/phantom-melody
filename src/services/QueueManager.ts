@@ -237,7 +237,7 @@ export class QueueManager {
         return await this.getTracks(category, category === 'hidden');
       }
 
-      // Get tracks in shuffled order
+      // Get tracks in shuffled order (plain objects so MusicPlayer gets string youtubeUrl)
       const tracks: ITrack[] = [];
       for (const trackId of playlist.shuffledOrder) {
         const track = await Track.findOne({ trackId });
@@ -245,9 +245,10 @@ export class QueueManager {
         if (track && track.youtubeUrl && 
             track.youtubeUrl !== 'undefined' && 
             track.youtubeUrl !== 'null' &&
-            track.youtubeUrl.trim() !== '' &&
-            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)) {
-          tracks.push(track);
+            String(track.youtubeUrl).trim() !== '' &&
+            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(String(track.youtubeUrl))) {
+          const plain = (track as any).toObject ? (track as any).toObject() : { ...track, youtubeUrl: track.youtubeUrl };
+          tracks.push(plain);
         } else if (track && (!track.youtubeUrl || track.youtubeUrl === 'undefined')) {
           console.warn(`[QueueManager] Skipping track "${track.title}" (${trackId}) - no valid YouTube URL`);
         }
@@ -265,9 +266,24 @@ export class QueueManager {
     if (!isDBConnected()) return false;
 
     try {
-      const playlist = await Playlist.findOne({ category, isDefault: true });
+      let playlist = await Playlist.findOne({ category, isDefault: true });
       
-      if (playlist && !playlist.trackIds.includes(trackId)) {
+      if (!playlist) {
+        // Create playlist if it doesn't exist
+        playlist = new Playlist({
+          name: category === 'hidden' ? 'Hidden Treasures' : `${category.charAt(0).toUpperCase() + category.slice(1)} Music`,
+          category,
+          description: `Default ${category} playlist`,
+          trackIds: [trackId],
+          shuffledOrder: [trackId],
+          isDefault: true,
+          lastShuffled: new Date(),
+        });
+        await playlist.save();
+        return true;
+      }
+
+      if (!playlist.trackIds.includes(trackId)) {
         playlist.trackIds.push(trackId);
         playlist.shuffledOrder.push(trackId);
         await playlist.save();
@@ -278,6 +294,100 @@ export class QueueManager {
     } catch (error) {
       console.error('[QueueManager] Error adding track to playlist:', error);
       return false;
+    }
+  }
+
+  /**
+   * Save a YouTube URL as a permanent track in the database
+   * @param youtubeUrl YouTube URL to save
+   * @param category Category for the track
+   * @param customTitle Optional custom title (uses YouTube title if not provided)
+   * @param customArtist Optional custom artist (uses channel name if not provided)
+   * @returns Object with success status and track data or error message
+   */
+  async saveYouTubeTrack(
+    youtubeUrl: string,
+    category: TrackCategory,
+    customTitle?: string,
+    customArtist?: string
+  ): Promise<{ success: boolean; track?: ITrack; error?: string }> {
+    if (!isDBConnected()) {
+      return { success: false, error: 'Database is not connected' };
+    }
+
+    try {
+      // Validate YouTube URL format
+      const isYouTubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(youtubeUrl);
+      if (!isYouTubeUrl) {
+        return { success: false, error: 'Invalid YouTube URL format' };
+      }
+
+      // Extract video ID
+      const videoIdMatch = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+      if (!videoIdMatch || !videoIdMatch[1]) {
+        return { success: false, error: 'Could not extract video ID from URL' };
+      }
+
+      const videoId = videoIdMatch[1];
+      const trackId = `youtube-${videoId}`;
+
+      // Check if track already exists
+      const existingTrack = await Track.findOne({ youtubeUrl });
+      if (existingTrack) {
+        return { success: false, error: 'Track with this YouTube URL already exists', track: existingTrack };
+      }
+
+      const existingById = await Track.findOne({ trackId });
+      if (existingById) {
+        return { success: false, error: 'Track with this video ID already exists', track: existingById };
+      }
+
+      // Fetch video info from YouTube (YouTubeService / youtubei.js)
+      const { getVideoInfo } = await import('./YouTubeService');
+      const videoInfo = await getVideoInfo(youtubeUrl);
+
+      if (!videoInfo || !videoInfo.videoDetails) {
+        return { success: false, error: 'Could not fetch video information from YouTube' };
+      }
+
+      const videoDetails = videoInfo.videoDetails;
+      
+      // Use custom title/artist if provided, otherwise use YouTube data
+      const title = customTitle || videoDetails.title || 'Unknown Title';
+      const artist = customArtist || videoDetails.author?.name || 'Unknown Artist';
+      const duration = parseInt(videoDetails.lengthSeconds) || 0;
+      const description = videoDetails.description?.substring(0, 500) || '';
+
+      // Create new track
+      const newTrack = new Track({
+        trackId,
+        title,
+        artist,
+        youtubeUrl,
+        audioSource: 'youtube',
+        duration,
+        category,
+        description,
+        instruments: [],
+        isHidden: category === 'hidden',
+        playCount: 0,
+        monthlyPlayCount: 0,
+        upvotes: 0,
+        monthlyUpvotes: 0,
+        pinCount: 0,
+        monthlyPinCount: 0,
+        upvotedBy: [],
+      });
+
+      await newTrack.save();
+
+      // Add track to playlist
+      await this.addTrackToPlaylist(trackId, category);
+
+      return { success: true, track: newTrack };
+    } catch (error: any) {
+      console.error('[QueueManager] Error saving YouTube track:', error);
+      return { success: false, error: error.message || 'Unknown error occurred' };
     }
   }
 
