@@ -8,6 +8,8 @@ import { QueueManager } from './services/QueueManager';
 import { ListeningRewardService } from './services/ListeningRewardService';
 import { MusicInteractionService } from './services/MusicInteractionService';
 import { musicLogService } from './services/MusicLogService';
+import { nowPlayingDisplayService } from './services/NowPlayingDisplayService';
+import { selectionQueueService } from './services/SelectionQueueService';
 
 // Load environment variables
 dotenv.config();
@@ -132,6 +134,12 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Start music log service (for persistent log display)
   musicLogService.start(readyClient);
+  
+  // Start now playing display service (beautiful now playing view)
+  nowPlayingDisplayService.start(readyClient);
+  
+  // Start selection queue service (turn-based song selection)
+  selectionQueueService.start(readyClient);
   
   // Daily playlist shuffle at midnight UTC
   cron.schedule('0 0 * * *', async () => {

@@ -7,53 +7,22 @@ export interface PlaylistConfig {
   emoji: string;
 }
 
-// Default playlist configurations
-export const DEFAULT_PLAYLISTS: PlaylistConfig[] = [
-  {
-    name: 'Battle Music',
-    category: 'battle',
-    description: 'Epic battle themes and combat music',
-    emoji: '⚔️',
-  },
-  {
-    name: 'Story Music',
-    category: 'story',
-    description: 'Narrative and storytelling themes',
-    emoji: '📖',
-  },
-  {
-    name: 'Exploration Music',
-    category: 'exploration',
-    description: 'Adventure and exploration themes',
-    emoji: '🗺️',
-  },
-  {
-    name: 'Emotional Music',
-    category: 'emotional',
-    description: 'Touching and emotional pieces',
-    emoji: '💫',
-  },
-  {
-    name: 'Ambient Music',
-    category: 'ambient',
-    description: 'Background and atmospheric music',
-    emoji: '🌙',
-  },
-  {
-    name: 'Hidden Treasures',
-    category: 'hidden',
-    description: 'Exclusive tracks for true fans',
-    emoji: '🔮',
-  },
-  {
-    name: 'All Tracks',
-    category: 'all',
-    description: 'The complete music collection',
-    emoji: '🎵',
-  },
-];
+// Single playlist configuration for Phantom Blade Zero
+export const MAIN_PLAYLIST: PlaylistConfig = {
+  name: 'Phantom Blade Zero Melody',
+  category: 'pbz', // Single category for all tracks
+  description: 'Official soundtrack from Phantom Blade Zero',
+  emoji: '🗡️',
+};
 
-// Honor point costs
+// Keep for backward compatibility (but only one playlist)
+export const DEFAULT_PLAYLISTS: PlaylistConfig[] = [MAIN_PLAYLIST];
+
+// Queue limits
+export const MAX_QUEUE_SIZE = 20;
+export const SKIP_VOTES_REQUIRED = 5;
+
+// Honor point costs (kept for future use)
 export const HONOR_COSTS = {
   PIN_TRACK: parseInt(process.env.PIN_COST || '5'),
   UPVOTE_TRACK: parseInt(process.env.UPVOTE_COST || '2'),

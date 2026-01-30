@@ -11,17 +11,18 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  VoiceChannel,
 } from 'discord.js';
 import { client } from '../index';
 import { isDBConnected } from '../utils/connectDB';
-import { honorPointService } from '../services/HonorPointService';
-import { DEFAULT_PLAYLISTS } from '../config/playlists';
-import { tryAcquire, release } from '../utils/ConcurrencyGuard';
+import { MAX_QUEUE_SIZE, SKIP_VOTES_REQUIRED, formatDuration } from '../config/playlists';
 
 export const name = Events.InteractionCreate;
 export const once = false;
-
-const ADD_SONG_CATEGORIES = ['battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden'] as const;
 
 export async function execute(interaction: Interaction) {
   if (interaction.isButton()) {
@@ -45,72 +46,83 @@ export async function execute(interaction: Interaction) {
 }
 
 /**
+ * Check if user is in the designated voice channel
+ */
+async function checkVoiceChannel(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<VoiceChannel | null> {
+  const member = interaction.member as GuildMember;
+  const voiceChannel = member.voice.channel;
+  const requiredChannelId = process.env.PHANTOM_MELODY_VOICE_CHANNEL_ID;
+
+  if (!voiceChannel) {
+    await interaction.reply({
+      content: '🎵 You need to be in a voice channel to use this!',
+      ephemeral: true,
+    });
+    return null;
+  }
+
+  if (requiredChannelId && voiceChannel.id !== requiredChannelId) {
+    await interaction.reply({
+      content: `🎵 You need to be in <#${requiredChannelId}> to use this!`,
+      ephemeral: true,
+    });
+    return null;
+  }
+
+  return voiceChannel as VoiceChannel;
+}
+
+/**
  * Handle button interactions
  */
 async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
   const customId = interaction.customId;
 
-  // Music control buttons
-  if (customId === 'music_playpause') {
-    await handlePlayPauseButton(interaction);
+  // Vote Skip button
+  if (customId === 'music_vote_skip') {
+    await handleVoteSkipButton(interaction);
     return;
   }
 
-  if (customId === 'music_skip') {
-    await handleSkipButton(interaction);
-    return;
-  }
-
+  // View Queue button
   if (customId === 'music_queue') {
     await handleQueueButton(interaction);
     return;
   }
 
-  if (customId === 'music_nowplaying') {
-    await handleNowPlayingButton(interaction);
+  // Admin: Add song button
+  if (customId === 'admin_add_song') {
+    await showAdminAddSongModal(interaction);
     return;
   }
 
-  if (customId === 'music_stop') {
-    await handleStopButton(interaction);
+  // Admin: View & Remove songs button
+  if (customId === 'admin_view_songs') {
+    await showAdminViewSongs(interaction);
     return;
   }
 
-  // Honor point buttons
-  if (customId === 'honor_pin') {
-    await handlePinButton(interaction);
+  // Admin: Confirm remove track
+  if (customId.startsWith('admin_confirm_remove_')) {
+    await handleAdminConfirmRemove(interaction);
     return;
   }
 
-  if (customId === 'honor_upvote') {
-    await handleUpvoteButton(interaction);
+  // Admin: Cancel remove
+  if (customId.startsWith('admin_cancel_remove')) {
+    await handleAdminCancelRemove(interaction);
     return;
   }
 
-  if (customId === 'honor_unlock') {
-    await handleUnlockButton(interaction);
+  // Selection Queue: Join queue
+  if (customId === 'selection_join_queue') {
+    await handleSelectionJoinQueue(interaction);
     return;
   }
 
-  if (customId === 'honor_balance') {
-    await handleBalanceButton(interaction);
-    return;
-  }
-
-  // Save YouTube track button
-  if (customId.startsWith('save_youtube_')) {
-    await handleSaveYouTubeButton(interaction);
-    return;
-  }
-
-  // Add Song channel buttons (bottom-based UX)
-  if (customId === 'add_song_play_only') {
-    await showAddSongModal(interaction, null);
-    return;
-  }
-  if (ADD_SONG_CATEGORIES.some(c => customId === `add_song_${c}`)) {
-    const category = customId.replace('add_song_', '') as typeof ADD_SONG_CATEGORIES[number];
-    await showAddSongModal(interaction, category);
+  // Selection Queue: Leave/Pass
+  if (customId === 'selection_leave_queue') {
+    await handleSelectionLeaveQueue(interaction);
     return;
   }
 }
@@ -119,262 +131,145 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
  * Handle select menu interactions
  */
 async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
-  if (interaction.customId === 'playlist_select') {
-    await handlePlaylistSelect(interaction);
+  // User song selection
+  if (interaction.customId === 'song_select') {
+    await handleSongSelect(interaction);
+    return;
+  }
+
+  // Admin: Remove track selection
+  if (interaction.customId === 'admin_remove_select') {
+    await handleAdminRemoveSelect(interaction);
     return;
   }
 }
 
 /**
- * Handle modal submissions (Add Song flow)
+ * Handle modal submissions
  */
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
   const customId = interaction.customId;
-  if (!customId.startsWith('add_song_modal_')) return;
+
+  // Admin add song modal
+  if (customId === 'admin_add_song_modal') {
+    await handleAdminAddSongModal(interaction);
+    return;
+  }
+}
+
+// ============================================
+// USER HANDLERS
+// ============================================
+
+/**
+ * Handle song selection from dropdown
+ */
+async function handleSongSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  const voiceChannel = await checkVoiceChannel(interaction);
+  if (!voiceChannel) return;
+
+  await interaction.deferReply({ ephemeral: true });
+
+  // Check if user can select (selection queue system)
+  const { selectionQueueService } = await import('../services/SelectionQueueService');
+  const canSelectResult = selectionQueueService.canSelect(interaction.user.id);
+
+  if (!canSelectResult.canSelect) {
+    await interaction.editReply({
+      content: `⏳ ${canSelectResult.message}\n\nClick **Join Queue** in the Selection Queue panel to wait for your turn.`,
+    });
+    return;
+  }
 
   if (!interaction.guild) {
-    await interaction.reply({ content: '❌ Use this in a server.', ephemeral: true });
+    await interaction.editReply({ content: '❌ This can only be used in a server!' });
     return;
   }
 
-  const guildId = interaction.guild.id;
-  const action = 'add_song';
-
-    if (!tryAcquire(guildId, action)) {
-    await interaction.reply({
-      content: '⏳ Another add-song or play request is in progress. Please wait a moment and try again.',
-      ephemeral: true,
-    });
-    return;
-  }
-
-  try {
-    if (customId === 'add_song_modal_play_only') {
-      await handleAddSongModalPlayOnly(interaction);
-    } else {
-      const category = customId.replace('add_song_modal_', '') as typeof ADD_SONG_CATEGORIES[number];
-      if (ADD_SONG_CATEGORIES.includes(category)) {
-        await handleAddSongModalSave(interaction, category);
-      }
-    }
-  } finally {
-    release(guildId);
-  }
-}
-
-/**
- * Show modal for adding a song (from Add Song channel buttons)
- */
-async function showAddSongModal(
-  interaction: ButtonInteraction,
-  category: typeof ADD_SONG_CATEGORIES[number] | null
-): Promise<void> {
-  const isPlayOnly = category === null;
-  const modalCustomId = isPlayOnly ? 'add_song_modal_play_only' : `add_song_modal_${category}`;
-  const modalTitle = isPlayOnly ? 'Play YouTube URL' : `Add song to ${category.charAt(0).toUpperCase() + category.slice(1)}`;
-
-  const urlInput = new TextInputBuilder()
-    .setCustomId('url')
-    .setLabel('YouTube URL')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('https://www.youtube.com/watch?v=...')
-    .setRequired(true)
-    .setMaxLength(500);
-
-  const urlRow = new ActionRowBuilder<TextInputBuilder>().addComponents(urlInput);
-
-  const modal = new ModalBuilder()
-    .setCustomId(modalCustomId)
-    .setTitle(modalTitle)
-    .addComponents(urlRow);
-
-  if (!isPlayOnly) {
-    const titleInput = new TextInputBuilder()
-      .setCustomId('title')
-      .setLabel('Title (optional)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Leave blank to use YouTube title')
-      .setRequired(false)
-      .setMaxLength(200);
-    const artistInput = new TextInputBuilder()
-      .setCustomId('artist')
-      .setLabel('Artist (optional)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Leave blank to use channel name')
-      .setRequired(false)
-      .setMaxLength(200);
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(titleInput),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(artistInput)
-    );
-  }
-
-  await interaction.showModal(modal);
-}
-
-/**
- * Handle "Play URL Only" modal submit: add to queue and play, do not save
- */
-async function handleAddSongModalPlayOnly(interaction: ModalSubmitInteraction): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
-
-  if (!interaction.guild) return;
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-  if (!voiceChannel) {
-    await interaction.editReply({ content: '🎵 You need to be in a voice channel to play music!' });
-    return;
-  }
-
-  let url = interaction.fields.getTextInputValue('url').trim();
-  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
-    await interaction.editReply({ content: '❌ Invalid YouTube URL. Use a valid YouTube link.' });
-    return;
-  }
-  // Normalize so YouTubeService and MusicPlayer don't get invalid URL
-  if (!/^https?:\/\//i.test(url)) {
-    url = 'https://' + url.replace(/^\/+/, '');
-  }
-
-  try {
-    const { getVideoInfo } = await import('../services/YouTubeService');
-    const videoInfo = await getVideoInfo(url);
-    if (!videoInfo?.videoDetails) {
-      await interaction.editReply({ content: '❌ Could not load video. It may be private or unavailable.' });
-      return;
-    }
-
-    const vd = videoInfo.videoDetails;
-    const track = {
-      trackId: `temp-${Date.now()}`,
-      title: vd.title || 'Unknown Title',
-      artist: vd.author?.name || 'Unknown Artist',
-      youtubeUrl: url,
-      audioSource: 'youtube' as const,
-      duration: parseInt(vd.lengthSeconds) || 0,
-      category: 'battle' as const,
-      description: vd.description || '',
-      instruments: [],
-      isHidden: false,
-      playCount: 0,
-      monthlyPlayCount: 0,
-      upvotes: 0,
-      monthlyUpvotes: 0,
-      pinCount: 0,
-      monthlyPinCount: 0,
-      upvotedBy: [],
-    };
-
-    const queueManager = client.queueManager;
-    const player = await queueManager.getOrCreatePlayer(interaction.guild.id, voiceChannel as any, interaction.channelId);
-    await player.addToQueue(track, interaction.user.id);
-
-    const embed = new EmbedBuilder()
-      .setTitle('🎵 Added to Queue')
-      .setDescription(`**${track.title}**`)
-      .addFields(
-        { name: 'Artist', value: track.artist || 'Unknown', inline: true },
-        { name: 'Position', value: `#${player.getQueueLength()}`, inline: true }
-      )
-      .setColor(0x9B59B6)
-      .setFooter({ text: `Requested by ${interaction.user.username}` });
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error: any) {
-    console.error('[Add Song Play Only] Error:', error);
-    await interaction.editReply({
-      content: `❌ Error: ${error.message || 'Could not add song.'}`,
-    });
-  }
-}
-
-/**
- * Handle "Add song to category" modal submit: save to DB, add to playlist, and add to queue
- */
-async function handleAddSongModalSave(
-  interaction: ModalSubmitInteraction,
-  category: typeof ADD_SONG_CATEGORIES[number]
-): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
-
-  if (!interaction.guild) return;
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-
-  const url = interaction.fields.getTextInputValue('url').trim();
-  const customTitle = interaction.fields.getTextInputValue('title')?.trim() || undefined;
-  const customArtist = interaction.fields.getTextInputValue('artist')?.trim() || undefined;
-
-  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
-    await interaction.editReply({ content: '❌ Invalid YouTube URL. Use a valid YouTube link.' });
-    return;
-  }
-
-  if (!isDBConnected()) {
-    await interaction.editReply({ content: '❌ Database is not connected. Try again later.' });
-    return;
-  }
-
+  const trackId = interaction.values[0];
   const queueManager = client.queueManager;
-  const result = await queueManager.saveYouTubeTrack(url, category, customTitle, customArtist);
 
-  if (!result.success) {
+  // Get the track
+  const track = await queueManager.getTrackById(trackId);
+  if (!track) {
+    await interaction.editReply({ content: '❌ Track not found!' });
+    return;
+  }
+
+  // Get or create player
+  const player = await queueManager.getOrCreatePlayer(
+    interaction.guild.id,
+    voiceChannel,
+    interaction.channelId
+  );
+
+  // Check queue limit
+  if (player.getQueueLength() >= MAX_QUEUE_SIZE) {
     await interaction.editReply({
-      content: `❌ ${result.error || 'Could not save track.'}`,
+      content: `❌ Queue is full! (max ${MAX_QUEUE_SIZE} tracks)\nWait for current track to finish or Vote Skip`,
     });
     return;
   }
 
-  const track = result.track!;
-  // Pass plain object so MusicPlayer always gets a string youtubeUrl (avoids Mongoose getter/ERR_INVALID_URL)
-  const trackForQueue = (track as any).toObject
-    ? (track as any).toObject()
-    : { ...track, youtubeUrl: track.youtubeUrl };
+  // Convert to plain object for MusicPlayer
+  const trackForQueue = (track as any).toObject ? (track as any).toObject() : { ...track, youtubeUrl: track.youtubeUrl };
+
+  // Add to queue
+  const added = await player.addToQueue(trackForQueue, interaction.user.id, interaction.user.username);
+
+  if (!added) {
+    await interaction.editReply({
+      content: `❌ Could not add track. Queue may be full.`,
+    });
+    return;
+  }
+
+  // Notify selection queue that user finished selecting
+  selectionQueueService.onSongSelected(interaction.user.id);
+
+  // Log user adding song to queue
+  const { musicLogService } = await import('../services/MusicLogService');
+  musicLogService.addLog(`📋 Queued: **${track.title}** by ${interaction.user.username}`, 'info');
 
   const embed = new EmbedBuilder()
-    .setTitle('✅ Track Saved & Added to Queue')
+    .setTitle('🎵 Added to Queue!')
     .setDescription(`**${track.title}**`)
     .addFields(
       { name: 'Artist', value: track.artist || 'Unknown', inline: true },
-      { name: 'Category', value: category, inline: true },
-      { name: 'Track ID', value: `\`${track.trackId}\``, inline: true }
+      { name: 'Duration', value: formatDuration(track.duration || 0), inline: true },
+      { name: 'Position', value: `#${player.getQueueLength()}`, inline: true }
     )
     .setColor(0x9B59B6)
-    .setFooter({ text: `Added by ${interaction.user.username}` });
+    .setFooter({ text: `Added by ${interaction.user.username}` })
+    .setTimestamp();
 
-  // If user is in voice channel, add to queue and play
-  if (voiceChannel) {
-    try {
-      const player = await queueManager.getOrCreatePlayer(interaction.guild!.id, voiceChannel as any, interaction.channelId);
-      await player.addToQueue(trackForQueue, interaction.user.id);
-      embed.setDescription(`**${track.title}**\n\n✅ Saved to database and added to queue.`);
-    } catch (e) {
-      embed.setDescription(`**${track.title}**\n\n✅ Saved to database. Join a voice channel and use Playlist or /play to play.`);
+  if (track.thumbnailUrl) {
+    embed.setThumbnail(track.thumbnailUrl);
+  } else if (track.youtubeUrl) {
+    const videoIdMatch = track.youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+    if (videoIdMatch && videoIdMatch[1]) {
+      embed.setThumbnail(`https://img.youtube.com/vi/${videoIdMatch[1]}/maxresdefault.jpg`);
     }
   }
 
   await interaction.editReply({ embeds: [embed] });
 
-  const { musicLogService } = await import('../services/MusicLogService');
-  musicLogService.addLog(`Track added via channel: ${track.title} (${category})`, 'info');
+  // Update display
+  const { nowPlayingDisplayService } = await import('../services/NowPlayingDisplayService');
+  nowPlayingDisplayService.updateDisplay();
 }
 
-// Button handlers
-async function handlePlayPauseButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+/**
+ * Handle Vote Skip button
+ */
+async function handleVoteSkipButton(interaction: ButtonInteraction): Promise<void> {
+  const voiceChannel = await checkVoiceChannel(interaction);
+  if (!voiceChannel) return;
+
+  await interaction.deferReply({ ephemeral: true });
 
   if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-
-  if (!voiceChannel) {
-    await interaction.editReply({ content: '🎵 You need to be in a voice channel to use this command!' });
+    await interaction.editReply({ content: '❌ This can only be used in a server!' });
     return;
   }
 
@@ -382,77 +277,47 @@ async function handlePlayPauseButton(interaction: ButtonInteraction): Promise<vo
   const player = queueManager.getPlayer(interaction.guild.id);
 
   if (!player || !player.isConnected()) {
-    await interaction.editReply({ content: '❌ There is no music playing right now!' });
-    return;
-  }
-
-  // Toggle play/pause based on actual playback state (Playing vs Paused)
-  const state = player.getPlaybackState();
-
-  if (state === 'playing') {
-    const paused = player.pause();
-    if (paused) {
-      const { musicLogService } = await import('../services/MusicLogService');
-      musicLogService.addLog('Music paused', 'info');
-      await interaction.editReply({ content: '⏸️ Music paused. Click again to resume!' });
-    } else {
-      await interaction.editReply({ content: '❌ Could not pause music.' });
-    }
-  } else if (state === 'paused') {
-    const resumed = player.resume();
-    if (resumed) {
-      const { musicLogService } = await import('../services/MusicLogService');
-      musicLogService.addLog('Music resumed', 'info');
-      await interaction.editReply({ content: '▶️ Music resumed!' });
-    } else {
-      await interaction.editReply({ content: '❌ Could not resume music.' });
-    }
-  } else {
-    await interaction.editReply({ content: '❌ No track is playing. Select a playlist or use /play first!' });
-  }
-}
-
-async function handleSkipButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-
-  if (!voiceChannel) {
-    await interaction.editReply({ content: '🎵 You need to be in a voice channel to use this command!' });
-    return;
-  }
-
-  const queueManager = client.queueManager;
-  const player = queueManager.getPlayer(interaction.guild.id);
-
-  if (!player || !player.isConnected()) {
-    await interaction.editReply({ content: '❌ There is no music playing right now!' });
+    await interaction.editReply({ content: '❌ No music is currently playing!' });
     return;
   }
 
   const currentTrack = player.getCurrentTrack();
-  const skipped = player.skip();
+  if (!currentTrack) {
+    await interaction.editReply({ content: '❌ No music is currently playing!' });
+    return;
+  }
 
-  if (skipped) {
+  const result = player.addSkipVote(interaction.user.id);
+
+  if (!result.voted) {
+    await interaction.editReply({
+      content: `⏭️ You already voted to skip this track!\n\nCurrent votes: **${result.totalVotes}/${result.required}**`,
+    });
+    return;
+  }
+
+  if (result.skipped) {
     const { musicLogService } = await import('../services/MusicLogService');
-    musicLogService.addLog(`Skipped: ${currentTrack?.track.title || 'Unknown track'}`, 'info');
-    await interaction.editReply({ content: `⏭️ Skipped: **${currentTrack?.track.title || 'Unknown track'}**` });
+    musicLogService.addLog(`⏭️ Skipped: ${currentTrack.track.title} (vote skip - ${result.totalVotes} votes)`, 'info');
+
+    await interaction.editReply({
+      content: `⏭️ Skipped **${currentTrack.track.title}**!\n\n✅ Reached ${result.required} votes`,
+    });
   } else {
-    await interaction.editReply({ content: '❌ Could not skip. No track is currently playing.' });
+    await interaction.editReply({
+      content: `⏭️ Voted to skip **${currentTrack.track.title}**\n\nCurrent votes: **${result.totalVotes}/${result.required}**\nNeed **${result.required - result.totalVotes}** more votes`,
+    });
   }
 }
 
+/**
+ * Handle View Queue button
+ */
 async function handleQueueButton(interaction: ButtonInteraction): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
+    await interaction.editReply({ content: '❌ This can only be used in a server!' });
     return;
   }
 
@@ -460,7 +325,7 @@ async function handleQueueButton(interaction: ButtonInteraction): Promise<void> 
   const player = queueManager.getPlayer(interaction.guild.id);
 
   if (!player || !player.isConnected()) {
-    await interaction.editReply({ content: '❌ There is no active music queue!' });
+    await interaction.editReply({ content: '❌ No active music queue!' });
     return;
   }
 
@@ -472,555 +337,392 @@ async function handleQueueButton(interaction: ButtonInteraction): Promise<void> 
     .setColor(0x9B59B6);
 
   if (currentTrack) {
+    const position = player.getPlaybackPosition();
+    const duration = currentTrack.track.duration || 0;
+    const progressBar = createProgressBar(position, duration);
+
     embed.addFields({
       name: '🎧 Now Playing',
-      value: `**${currentTrack.track.title}** - ${currentTrack.track.artist}` +
-             (currentTrack.isPinned ? ' 📌' : ''),
+      value: `**${currentTrack.track.title}** — ${currentTrack.track.artist || 'Unknown'}\n` +
+        `\`${formatDuration(position)}\` ${progressBar} \`${formatDuration(duration)}\`` +
+        (currentTrack.requestedByUsername ? `\n🙋 ${currentTrack.requestedByUsername}` : ''),
     });
   }
 
   if (queue.length > 0) {
     const queueList = queue.slice(0, 10).map((item: any, index: number) => {
-      const pinIcon = item.isPinned ? ' 📌' : '';
-      return `${index + 1}. **${item.track.title}** - ${item.track.artist}${pinIcon}`;
+      const requester = item.requestedByUsername ? ` • 🙋 ${item.requestedByUsername}` : '';
+      return `**${index + 1}.** ${item.track.title} — ${item.track.artist || 'Unknown'}${requester}`;
     }).join('\n');
 
     embed.addFields({
       name: `📋 Up Next (${queue.length} tracks)`,
       value: queueList,
     });
+
+    if (queue.length > 10) {
+      embed.setFooter({ text: `and ${queue.length - 10} more...` });
+    }
   } else {
     embed.addFields({
       name: '📋 Up Next',
-      value: 'Queue is empty. Add tracks with playlist selection!',
+      value: '*No tracks in queue — Select songs from the menu!*',
     });
   }
 
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function handleNowPlayingButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+// ============================================
+// ADMIN HANDLERS
+// ============================================
 
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
+/**
+ * Show admin add song modal
+ */
+async function showAdminAddSongModal(interaction: ButtonInteraction): Promise<void> {
+  const urlInput = new TextInputBuilder()
+    .setCustomId('url')
+    .setLabel('YouTube URL')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('https://www.youtube.com/watch?v=...')
+    .setRequired(true)
+    .setMaxLength(500);
 
-  const queueManager = client.queueManager;
-  const player = queueManager.getPlayer(interaction.guild.id);
+  const titleInput = new TextInputBuilder()
+    .setCustomId('title')
+    .setLabel('Title (optional)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('Leave blank to use YouTube title')
+    .setRequired(false)
+    .setMaxLength(200);
 
-  if (!player || !player.isConnected()) {
-    await interaction.editReply({ content: '❌ There is no music playing right now!' });
-    return;
-  }
+  const artistInput = new TextInputBuilder()
+    .setCustomId('artist')
+    .setLabel('Artist (optional)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('Leave blank to use YouTube channel name')
+    .setRequired(false)
+    .setMaxLength(200);
 
-  const currentTrack = player.getCurrentTrack();
-
-  if (!currentTrack) {
-    await interaction.editReply({ content: '❌ No track is currently playing!' });
-    return;
-  }
-
-  const track = currentTrack.track;
-  const { formatDuration } = await import('../config/playlists');
-
-  const embed = new EmbedBuilder()
-    .setTitle('🎵 Now Playing')
-    .setDescription(`**${track.title}**`)
-    .addFields(
-      { name: 'Artist', value: track.artist || 'Unknown', inline: true },
-      { name: 'Duration', value: formatDuration(track.duration), inline: true },
-      { name: 'Category', value: track.category, inline: true },
-      { name: 'Play Count', value: track.playCount.toString(), inline: true },
-      { name: 'Upvotes', value: `❤️ ${track.upvotes}`, inline: true },
-      { name: 'Pins', value: `📌 ${track.pinCount}`, inline: true }
-    )
-    .setColor(currentTrack.isPinned ? 0xFFD700 : 0x9B59B6);
-
-  if (track.description) {
-    embed.addFields({
-      name: '📖 About This Track',
-      value: track.description.substring(0, 1000),
-    });
-  }
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
-async function handleStopButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-
-  if (!voiceChannel) {
-    await interaction.editReply({ content: '🎵 You need to be in a voice channel to use this command!' });
-    return;
-  }
-
-  const queueManager = client.queueManager;
-  const player = queueManager.getPlayer(interaction.guild.id);
-
-  if (!player || !player.isConnected()) {
-    await interaction.editReply({ content: '❌ There is no music playing right now!' });
-    return;
-  }
-
-  queueManager.destroyPlayer(interaction.guild.id);
-  const { musicLogService } = await import('../services/MusicLogService');
-  musicLogService.addLog('Music stopped and queue cleared', 'warning');
-  await interaction.editReply({ content: '⏹️ Music stopped and queue cleared. Disconnected from voice channel.' });
-}
-
-async function handlePlaylistSelect(interaction: StringSelectMenuInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  const member = interaction.member as GuildMember;
-  const voiceChannel = member.voice.channel;
-
-  if (!voiceChannel) {
-    await interaction.editReply({ content: '🎵 You need to be in a voice channel to play music!' });
-    return;
-  }
-
-  const category = interaction.values[0] as any;
-  const queueManager = client.queueManager;
-
-  // Check if trying to access hidden playlist
-  if (category === 'hidden') {
-    const hasAccess = await honorPointService.hasUnlockedHidden(interaction.user.id);
-    
-    if (!hasAccess) {
-      await interaction.editReply({
-        content: '🔮 The **Hidden Treasures** playlist is locked! Use the **Unlock Hidden** button to spend Honor Points and gain access.',
-      });
-      return;
-    }
-  }
-
-  // Get tracks for the category
-  const tracks = await queueManager.getPlaylist(category);
-
-  if (tracks.length === 0) {
-    await interaction.editReply({
-      content: `❌ No tracks found in the **${category}** playlist.`,
-    });
-    return;
-  }
-
-  // Get or create the music player for this guild
-  const player = await queueManager.getOrCreatePlayer(
-    interaction.guild.id,
-    voiceChannel as any,
-    interaction.channelId
-  );
-
-  // Clear current queue and add new playlist
-  player.clearQueue();
-  await player.addTracksToQueue(tracks, true); // Shuffle the playlist
-
-  // Find the playlist config for the emoji
-  const playlistConfig = DEFAULT_PLAYLISTS.find(p => p.category === category);
-
-  // Add log entry
-  const { musicLogService } = await import('../services/MusicLogService');
-  musicLogService.addLog(`Playlist selected: ${playlistConfig?.name || category} (${tracks.length} tracks)`, 'success');
-
-  // Build track list for embed (Discord field value limit 1024 chars)
-  const maxList = 15;
-  const listLines = tracks.slice(0, maxList).map((t: { title: string; artist?: string }, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`);
-  const trackListText = listLines.length > 0
-    ? listLines.join('\n') + (tracks.length > maxList ? `\n... and ${tracks.length - maxList} more` : '')
-    : '—';
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${playlistConfig?.emoji || '🎵'} ${playlistConfig?.name || category} Playlist`)
-    .setDescription(playlistConfig?.description || `Playing ${category} music`)
-    .addFields(
-      { name: 'Tracks', value: tracks.length.toString(), inline: true },
-      { name: 'Mode', value: 'Shuffled', inline: true },
-      { name: '📋 Songs in this playlist', value: trackListText.slice(0, 1024), inline: false }
-    )
-    .setColor(category === 'hidden' ? 0xFFD700 : 0x9B59B6)
-    .setFooter({ text: `Started by ${interaction.user.username}` });
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
-async function handlePinButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  // Check if there's a current track playing
-  const queueManager = client.queueManager;
-  const player = queueManager.getPlayer(interaction.guild.id);
-  const currentTrack = player?.getCurrentTrack();
-
-  if (!currentTrack) {
-    await interaction.editReply({
-      content: '📌 **Pin Track**\n\n' +
-               'To pin a track, use the `/pin` command:\n' +
-               '`/pin [track name]`\n\n' +
-               '**Cost:** 5 Honor Points\n' +
-               '**Effect:** The pinned track will play next, even if there are other tracks in the queue.',
-    });
-    return;
-  }
-
-  // If there's a current track, offer to pin it
-  try {
-    const result = await honorPointService.pinTrack(
-      interaction.user.id,
-      interaction.user.username,
-      currentTrack.track.trackId
+  const modal = new ModalBuilder()
+    .setCustomId('admin_add_song_modal')
+    .setTitle('Add New Track')
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(urlInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(titleInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(artistInput)
     );
 
-    if (!result.success) {
-      await interaction.editReply({ content: `❌ ${result.message}` });
-      return;
-    }
-
-    // Add to pinned queue
-    if (player) {
-      await player.addToQueue(currentTrack.track, interaction.user.id, true);
-    }
-
-    const { HONOR_COSTS } = await import('../config/playlists');
-    const embed = new EmbedBuilder()
-      .setTitle('📌 Track Pinned!')
-      .setDescription(`**${currentTrack.track.title}** will play next!`)
-      .addFields(
-        { name: 'Cost', value: `${HONOR_COSTS.PIN_TRACK} Honor Points`, inline: true },
-        { name: 'New Balance', value: `${result.newBalance} points`, inline: true }
-      )
-      .setColor(0xFFD700)
-      .setFooter({ text: `Pinned by ${interaction.user.username}` });
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
-    console.error('[Pin Button] Error:', error);
-    await interaction.editReply({
-      content: '❌ An error occurred while pinning the track.',
-    });
-  }
+  await interaction.showModal(modal);
 }
 
-async function handleUpvoteButton(interaction: ButtonInteraction): Promise<void> {
+/**
+ * Handle admin add song modal submission
+ */
+async function handleAdminAddSongModal(interaction: ModalSubmitInteraction): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
+    await interaction.editReply({ content: '❌ This can only be used in a server!' });
     return;
   }
 
-  // Check if there's a current track playing
-  const queueManager = client.queueManager;
-  const player = queueManager.getPlayer(interaction.guild.id);
-  const currentTrack = player?.getCurrentTrack();
+  const url = interaction.fields.getTextInputValue('url').trim();
+  const customTitle = interaction.fields.getTextInputValue('title')?.trim() || undefined;
+  const customArtist = interaction.fields.getTextInputValue('artist')?.trim() || undefined;
 
-  if (!currentTrack) {
-    await interaction.editReply({
-      content: '❤️ **Upvote Track**\n\n' +
-               'To upvote a track, use the `/upvote` command:\n' +
-               '`/upvote [track name]`\n\n' +
-               '**Cost:** 2 Honor Points\n' +
-               '**Effect:** Shows your support for the track and increases its upvote count.',
-    });
-    return;
-  }
-
-  // If there's a current track, offer to upvote it
-  try {
-    const result = await honorPointService.upvoteTrack(
-      interaction.user.id,
-      interaction.user.username,
-      currentTrack.track.trackId
-    );
-
-    if (!result.success) {
-      await interaction.editReply({ content: `❌ ${result.message}` });
-      return;
-    }
-
-    const { HONOR_COSTS } = await import('../config/playlists');
-    const embed = new EmbedBuilder()
-      .setTitle('❤️ Track Upvoted!')
-      .setDescription(`You upvoted **${currentTrack.track.title}**!`)
-      .addFields(
-        { name: 'Total Upvotes', value: `${currentTrack.track.upvotes + 1}`, inline: true },
-        { name: 'Cost', value: `${HONOR_COSTS.UPVOTE_TRACK} Honor Points`, inline: true },
-        { name: 'New Balance', value: `${result.newBalance} points`, inline: true }
-      )
-      .setColor(0xE91E63)
-      .setFooter({ text: `Thanks for supporting ${currentTrack.track.artist || 'the artist'}!` });
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
-    console.error('[Upvote Button] Error:', error);
-    await interaction.editReply({
-      content: '❌ An error occurred while upvoting the track.',
-    });
-  }
-}
-
-async function handleUnlockButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
-    return;
-  }
-
-  try {
-    const hasAccess = await honorPointService.hasUnlockedHidden(interaction.user.id);
-    
-    if (hasAccess) {
-      await interaction.editReply({
-        content: '✨ You have already unlocked the **Hidden Treasures** playlist! Select it from the playlist menu.',
-      });
-      return;
-    }
-
-    const currentBalance = await honorPointService.getHonorPoints(interaction.user.id);
-    const { HONOR_COSTS } = await import('../config/playlists');
-    
-    if (currentBalance < HONOR_COSTS.UNLOCK_HIDDEN) {
-      await interaction.editReply({
-        content: `❌ You need **${HONOR_COSTS.UNLOCK_HIDDEN} Honor Points** to unlock the Hidden Treasures playlist.\n\n` +
-                 `Your current balance: **${currentBalance} points**\n\n` +
-                 `Earn more points by interacting with Honor Bot!`,
-      });
-      return;
-    }
-
-    const result = await honorPointService.unlockHiddenPlaylist(
-      interaction.user.id,
-      interaction.user.username
-    );
-
-    if (!result.success) {
-      await interaction.editReply({ content: `❌ ${result.message}` });
-      return;
-    }
-
-    const embed = new EmbedBuilder()
-      .setTitle('🔮 Hidden Treasures Unlocked!')
-      .setDescription('You have unlocked exclusive access to the **Hidden Treasures** playlist!')
-      .addFields(
-        { name: 'Cost', value: `${HONOR_COSTS.UNLOCK_HIDDEN} Honor Points`, inline: true },
-        { name: 'New Balance', value: `${result.newBalance} points`, inline: true }
-      )
-      .setColor(0xFFD700)
-      .setFooter({ text: 'Select "Hidden Treasures" from the playlist menu!' });
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
-    console.error('[Unlock Button] Error:', error);
-    await interaction.editReply({
-      content: '❌ An error occurred while unlocking the playlist.',
-    });
-  }
-}
-
-async function handleBalanceButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  try {
-    const balance = await honorPointService.getHonorPoints(interaction.user.id);
-    const hasUnlockedHidden = await honorPointService.hasUnlockedHidden(interaction.user.id);
-    const { HONOR_COSTS } = await import('../config/playlists');
-
-    const embed = new EmbedBuilder()
-      .setTitle('💰 Honor Points Balance')
-      .setDescription(`You have **${balance}** Honor Points`)
-      .setColor(0x9B59B6)
-      .addFields(
-        {
-          name: '📋 Price List',
-          value: 
-            `📌 Pin a Track: **${HONOR_COSTS.PIN_TRACK}** points\n` +
-            `❤️ Upvote a Track: **${HONOR_COSTS.UPVOTE_TRACK}** points\n` +
-            `🔮 Unlock Hidden Playlist: **${HONOR_COSTS.UNLOCK_HIDDEN}** points`,
-        },
-        {
-          name: '🔮 Hidden Playlist',
-          value: hasUnlockedHidden ? '✅ Unlocked' : '🔒 Locked',
-          inline: true,
-        }
-      )
-      .setFooter({ text: 'Earn Honor Points by interacting with Honor Bot!' });
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
-    console.error('[Balance Button] Error:', error);
-    await interaction.editReply({
-      content: '❌ An error occurred while fetching your balance.',
-    });
-  }
-}
-
-async function handleSaveYouTubeButton(interaction: ButtonInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This command can only be used in a server!' });
+  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
+    await interaction.editReply({ content: '❌ Invalid URL. Please use a YouTube link.' });
     return;
   }
 
   if (!isDBConnected()) {
-    await interaction.editReply({ 
-      content: '❌ Database is not connected. Please try again later.', 
-    });
+    await interaction.editReply({ content: '❌ Database not connected. Try again later.' });
     return;
   }
 
-  try {
-    // Parse customId: save_youtube_{videoId}_{encodedUrl}
-    const customId = interaction.customId;
-    const parts = customId.split('_');
-    
-    if (parts.length < 4) {
-      await interaction.editReply({
-        content: '❌ Invalid button data. Please use `/addtrack` command instead.',
-      });
-      return;
-    }
+  const queueManager = client.queueManager;
+  const result = await queueManager.saveYouTubeTrack(url, customTitle, customArtist);
 
-    // Reconstruct encoded URL (everything after save_youtube_{videoId}_)
-    const videoId = parts[2];
-    const encodedUrl = customId.substring(`save_youtube_${videoId}_`.length);
-    const youtubeUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
-
-    // Check if track already exists
-    const { Track } = await import('../models/Track');
-    const existingTrack = await Track.findOne({ youtubeUrl });
-    
-    if (existingTrack) {
-      await interaction.editReply({
-        content: `✅ This track is already saved!\n\n**Track:** ${existingTrack.title}\n**Track ID:** \`${existingTrack.trackId}\`\n**Category:** ${existingTrack.category}\n\nUse \`/addtoplaylist trackid:${existingTrack.trackId} category:${existingTrack.category}\` to add it to a playlist.`,
-      });
-      return;
-    }
-
-    // Check if trackId already exists
-    const trackId = `youtube-${videoId}`;
-    const existingById = await Track.findOne({ trackId });
-    if (existingById) {
-      await interaction.editReply({
-        content: `✅ A track with this video ID already exists!\n\n**Track:** ${existingById.title}\n**Track ID:** \`${existingById.trackId}\`\n**YouTube URL:** ${existingById.youtubeUrl}`,
-      });
-      return;
-    }
-
-    // Fetch video info (YouTubeService / youtubei.js)
-    const { getVideoInfo } = await import('../services/YouTubeService');
-    const videoInfo = await getVideoInfo(youtubeUrl);
-
-    if (!videoInfo || !videoInfo.videoDetails) {
-      await interaction.editReply({
-        content: `❌ Could not fetch video information. The video may be private or deleted.`,
-      });
-      return;
-    }
-
-    const videoDetails = videoInfo.videoDetails;
-    const title = videoDetails.title || 'Unknown Title';
-    const artist = videoDetails.author?.name || 'Unknown Artist';
-    const duration = parseInt(videoDetails.lengthSeconds) || 0;
-    const description = videoDetails.description?.substring(0, 500) || '';
-
-    // Create new track with default category 'battle'
-    const newTrack = new Track({
-      trackId,
-      title,
-      artist,
-      youtubeUrl,
-      audioSource: 'youtube',
-      duration,
-      category: 'battle', // Default category
-      description,
-      instruments: [],
-      isHidden: false,
-      playCount: 0,
-      monthlyPlayCount: 0,
-      upvotes: 0,
-      monthlyUpvotes: 0,
-      pinCount: 0,
-      monthlyPinCount: 0,
-      upvotedBy: [],
-    });
-
-    await newTrack.save();
-
-    // Add to playlist
-    const { Playlist } = await import('../models/Playlist');
-    let playlist = await Playlist.findOne({ category: 'battle', isDefault: true });
-    
-    if (!playlist) {
-      playlist = new Playlist({
-        name: 'Battle Music',
-        category: 'battle',
-        description: 'Default battle playlist',
-        trackIds: [trackId],
-        shuffledOrder: [trackId],
-        isDefault: true,
-        lastShuffled: new Date(),
-      });
-      await playlist.save();
-    } else {
-      if (!playlist.trackIds.includes(trackId)) {
-        playlist.trackIds.push(trackId);
-        playlist.shuffledOrder.push(trackId);
-        await playlist.save();
-      }
-    }
-
-    const embed = new EmbedBuilder()
-      .setTitle('✅ Track Saved Successfully!')
-      .setDescription(`**${title}**\n\n✅ Saved to database and added to **Battle** playlist.\n\n💡 Use \`/addtoplaylist trackid:${trackId} category:<category>\` to add it to other playlists.`)
-      .addFields(
-        { name: 'Artist', value: artist, inline: true },
-        { name: 'Category', value: 'battle (default)', inline: true },
-        { name: 'Track ID', value: `\`${trackId}\``, inline: true },
-        { name: 'Duration', value: duration > 0 ? `${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')}` : 'Unknown', inline: true }
-      )
-      .setColor(0x9B59B6)
-      .setFooter({ text: `Saved by ${interaction.user.username}` });
-
-    await interaction.editReply({ embeds: [embed] });
-
-    // Log the addition
-    const { musicLogService } = await import('../services/MusicLogService');
-    musicLogService.addLog(`Track saved via button: ${title} by ${artist}`, 'info');
-
-  } catch (error: any) {
-    console.error('[Save YouTube Button] Error:', error);
-    
-    let errorMessage = '❌ An error occurred while saving the track.';
-    
-    if (error.message?.includes('duplicate key')) {
-      errorMessage = '❌ A track with this ID already exists in the database.';
-    } else if (error.message) {
-      errorMessage = `❌ Error: ${error.message}`;
-    }
-    
-    await interaction.editReply({
-      content: errorMessage,
-    });
+  if (!result.success) {
+    await interaction.editReply({ content: `❌ ${result.error || 'Could not save track.'}` });
+    return;
   }
+
+  const track = result.track!;
+  const { musicLogService } = await import('../services/MusicLogService');
+  musicLogService.addLog(`Admin added track: **${track.title}**`, 'success');
+
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Track Added Successfully!')
+    .setDescription(`**${track.title}**`)
+    .addFields(
+      { name: 'Artist', value: track.artist || 'Unknown', inline: true },
+      { name: 'Duration', value: formatDuration(track.duration || 0), inline: true },
+      { name: 'Track ID', value: `\`${track.trackId}\``, inline: true }
+    )
+    .setColor(0x57F287)
+    .setFooter({ text: `Added by ${interaction.user.username}` });
+
+  if (track.thumbnailUrl) {
+    embed.setThumbnail(track.thumbnailUrl);
+  }
+
+  await interaction.editReply({ embeds: [embed] });
+
+  // Refresh song selection menus
+  const { MusicInteractionService } = await import('../services/MusicInteractionService');
+  const musicInteractionService = new MusicInteractionService(client, queueManager);
+  await musicInteractionService.refreshSongSelection();
+}
+
+/**
+ * Show admin view songs panel
+ */
+async function showAdminViewSongs(interaction: ButtonInteraction): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const queueManager = client.queueManager;
+  const tracks = await queueManager.getAllTracks();
+
+  const maxListLines = 20;
+  const listLines = tracks.slice(0, maxListLines).map(
+    (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
+  );
+  const listText = listLines.length > 0
+    ? listLines.join('\n') + (tracks.length > maxListLines ? `\n... and ${tracks.length - maxListLines} more` : '')
+    : '*No tracks in playlist*';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('📋 All Tracks')
+    .setDescription(listText.slice(0, 4096))
+    .setFooter({ text: `${tracks.length} tracks • Select below to remove` })
+    .setTimestamp();
+
+  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+
+  if (tracks.length > 0) {
+    const maxOptions = 25;
+    const options = tracks.slice(0, maxOptions).map((t: any) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel((t.title || t.trackId).slice(0, 100))
+        .setValue(t.trackId)
+        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
+    );
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('admin_remove_select')
+      .setPlaceholder('Select track to remove...')
+      .addOptions(options);
+    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+  }
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: components.length > 0 ? components : undefined,
+  });
+}
+
+/**
+ * Handle admin remove track selection
+ */
+async function handleAdminRemoveSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  const trackId = interaction.values[0];
+  if (!trackId) return;
+
+  await interaction.deferUpdate();
+
+  const queueManager = client.queueManager;
+  const track = await queueManager.getTrackById(trackId);
+  const trackTitle = track?.title || trackId;
+
+  const embed = new EmbedBuilder()
+    .setColor(0xED4245)
+    .setTitle('⚠️ Confirm Removal')
+    .setDescription(`Remove **${trackTitle}** from playlist?`)
+    .setFooter({ text: 'Press Confirm to remove or Cancel to go back' })
+    .setTimestamp();
+
+  const confirmBtn = new ButtonBuilder()
+    .setCustomId(`admin_confirm_remove_${trackId}`)
+    .setLabel('Confirm Remove')
+    .setStyle(ButtonStyle.Danger)
+    .setEmoji('✅');
+  const cancelBtn = new ButtonBuilder()
+    .setCustomId('admin_cancel_remove')
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('❌');
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(confirmBtn, cancelBtn);
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+/**
+ * Handle admin confirm remove
+ */
+async function handleAdminConfirmRemove(interaction: ButtonInteraction): Promise<void> {
+  const customId = interaction.customId;
+  if (!customId.startsWith('admin_confirm_remove_')) return;
+
+  await interaction.deferUpdate();
+
+  const trackId = customId.replace('admin_confirm_remove_', '');
+  const queueManager = client.queueManager;
+
+  const track = await queueManager.getTrackById(trackId);
+  const trackTitle = track?.title || trackId;
+
+  const removed = await queueManager.removeTrack(trackId);
+
+  if (removed) {
+    const { musicLogService } = await import('../services/MusicLogService');
+    musicLogService.addLog(`Admin removed track: **${trackTitle}**`, 'info');
+  }
+
+  // Show updated list
+  const tracks = await queueManager.getAllTracks();
+  const maxListLines = 20;
+  const listLines = tracks.slice(0, maxListLines).map(
+    (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
+  );
+  const listText = listLines.length > 0
+    ? listLines.join('\n') + (tracks.length > maxListLines ? `\n... and ${tracks.length - maxListLines} more` : '')
+    : '*No tracks in playlist*';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('📋 All Tracks')
+    .setDescription(listText.slice(0, 4096))
+    .setFooter({ text: removed ? `✅ Removed "${trackTitle}" • ${tracks.length} tracks` : `❌ Could not remove • ${tracks.length} tracks` })
+    .setTimestamp();
+
+  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+
+  if (tracks.length > 0) {
+    const maxOptions = 25;
+    const options = tracks.slice(0, maxOptions).map((t: any) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel((t.title || t.trackId).slice(0, 100))
+        .setValue(t.trackId)
+        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
+    );
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('admin_remove_select')
+      .setPlaceholder('Select track to remove...')
+      .addOptions(options);
+    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+  }
+
+  await interaction.editReply({ embeds: [embed], components: components.length > 0 ? components : [] });
+
+  // Refresh song selection menus
+  const { MusicInteractionService } = await import('../services/MusicInteractionService');
+  const musicInteractionService = new MusicInteractionService(client, queueManager);
+  await musicInteractionService.refreshSongSelection();
+}
+
+/**
+ * Handle admin cancel remove
+ */
+async function handleAdminCancelRemove(interaction: ButtonInteraction): Promise<void> {
+  await interaction.deferUpdate();
+
+  // Show list again
+  const queueManager = client.queueManager;
+  const tracks = await queueManager.getAllTracks();
+
+  const maxListLines = 20;
+  const listLines = tracks.slice(0, maxListLines).map(
+    (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
+  );
+  const listText = listLines.length > 0
+    ? listLines.join('\n') + (tracks.length > maxListLines ? `\n... and ${tracks.length - maxListLines} more` : '')
+    : '*No tracks in playlist*';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('📋 All Tracks')
+    .setDescription(listText.slice(0, 4096))
+    .setFooter({ text: `${tracks.length} tracks • Select below to remove` })
+    .setTimestamp();
+
+  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+
+  if (tracks.length > 0) {
+    const maxOptions = 25;
+    const options = tracks.slice(0, maxOptions).map((t: any) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel((t.title || t.trackId).slice(0, 100))
+        .setValue(t.trackId)
+        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
+    );
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('admin_remove_select')
+      .setPlaceholder('Select track to remove...')
+      .addOptions(options);
+    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+  }
+
+  await interaction.editReply({ embeds: [embed], components: components.length > 0 ? components : [] });
+}
+
+// ============================================
+// SELECTION QUEUE HANDLERS
+// ============================================
+
+/**
+ * Handle joining the selection queue
+ */
+async function handleSelectionJoinQueue(interaction: ButtonInteraction): Promise<void> {
+  const voiceChannel = await checkVoiceChannel(interaction);
+  if (!voiceChannel) return;
+
+  const { selectionQueueService } = await import('../services/SelectionQueueService');
+  const result = selectionQueueService.joinQueue(interaction.user.id, interaction.user.username);
+
+  await interaction.reply({
+    content: result.success
+      ? `✅ ${result.message}`
+      : `ℹ️ ${result.message}`,
+    ephemeral: true,
+  });
+}
+
+/**
+ * Handle leaving the selection queue or passing turn
+ */
+async function handleSelectionLeaveQueue(interaction: ButtonInteraction): Promise<void> {
+  const { selectionQueueService } = await import('../services/SelectionQueueService');
+  const result = selectionQueueService.leaveQueue(interaction.user.id);
+
+  await interaction.reply({
+    content: result.success
+      ? `✅ ${result.message}`
+      : `ℹ️ ${result.message}`,
+    ephemeral: true,
+  });
+}
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Create a visual progress bar
+ */
+function createProgressBar(position: number, duration: number): string {
+  const totalBars = 15;
+  if (duration <= 0) return '─'.repeat(totalBars);
+
+  const progress = Math.min(position / duration, 1);
+  const filledBars = Math.round(progress * totalBars);
+  const emptyBars = totalBars - filledBars;
+
+  const filled = '━'.repeat(Math.max(0, filledBars - 1));
+  const pointer = filledBars > 0 ? '⬤' : '';
+  const empty = '─'.repeat(emptyBars);
+
+  return filled + pointer + empty;
 }

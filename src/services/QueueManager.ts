@@ -3,7 +3,7 @@ import { MusicPlayer } from './MusicPlayer';
 import { Track, ITrack, TrackCategory } from '../models/Track';
 import { Playlist } from '../models/Playlist';
 import { isDBConnected } from '../utils/connectDB';
-import { DEFAULT_PLAYLISTS } from '../config/playlists';
+import { MAIN_PLAYLIST } from '../config/playlists';
 
 export class QueueManager {
   private client: Client;
@@ -44,35 +44,28 @@ export class QueueManager {
     }
   }
 
-  // Get all tracks, optionally filtered by category
-  async getTracks(category?: TrackCategory | 'all', includeHidden: boolean = false): Promise<ITrack[]> {
+  /**
+   * Get all tracks from the main playlist (Phantom Blade Zero Melody)
+   */
+  async getAllTracks(): Promise<ITrack[]> {
     if (!isDBConnected()) return [];
 
     try {
-      const query: any = {};
-      
-      if (category && category !== 'all') {
-        query.category = category;
-      }
+      // Get all tracks with valid YouTube URLs
+      const tracks = await Track.find({
+        $and: [
+          { youtubeUrl: { $exists: true } },
+          { youtubeUrl: { $ne: null } },
+          { youtubeUrl: { $ne: '' } },
+          { youtubeUrl: { $ne: 'undefined' } },
+          { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
+        ]
+      }).sort({ title: 1 });
 
-      if (!includeHidden) {
-        query.isHidden = { $ne: true };
-      }
-
-      // Only get tracks with valid YouTube URLs
-      query.$and = [
-        { youtubeUrl: { $exists: true } },
-        { youtubeUrl: { $ne: null } },
-        { youtubeUrl: { $ne: '' } },
-        { youtubeUrl: { $ne: 'undefined' } },
-        { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
-      ];
-
-      const tracks = await Track.find(query).sort({ title: 1 });
       // Double-check and filter tracks with valid URLs
-      return tracks.filter(track => 
-        track.youtubeUrl && 
-        track.youtubeUrl !== 'undefined' && 
+      return tracks.filter(track =>
+        track.youtubeUrl &&
+        track.youtubeUrl !== 'undefined' &&
         track.youtubeUrl !== 'null' &&
         track.youtubeUrl.trim() !== '' &&
         /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)
@@ -83,36 +76,9 @@ export class QueueManager {
     }
   }
 
-  // Get hidden tracks only
-  async getHiddenTracks(): Promise<ITrack[]> {
-    if (!isDBConnected()) return [];
-
-    try {
-      const tracks = await Track.find({ 
-        isHidden: true,
-        $and: [
-          { youtubeUrl: { $exists: true } },
-          { youtubeUrl: { $ne: null } },
-          { youtubeUrl: { $ne: '' } },
-          { youtubeUrl: { $ne: 'undefined' } },
-          { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
-        ]
-      }).sort({ title: 1 });
-      // Double-check and filter tracks with valid URLs
-      return tracks.filter(track => 
-        track.youtubeUrl && 
-        track.youtubeUrl !== 'undefined' && 
-        track.youtubeUrl !== 'null' &&
-        track.youtubeUrl.trim() !== '' &&
-        /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)
-      );
-    } catch (error) {
-      console.error('[QueueManager] Error fetching hidden tracks:', error);
-      return [];
-    }
-  }
-
-  // Search tracks by title or artist
+  /**
+   * Search tracks by title or artist
+   */
   async searchTracks(query: string): Promise<ITrack[]> {
     if (!isDBConnected()) return [];
 
@@ -123,7 +89,6 @@ export class QueueManager {
           { title: regex },
           { artist: regex },
         ],
-        isHidden: { $ne: true },
         $and: [
           { youtubeUrl: { $exists: true } },
           { youtubeUrl: { $ne: null } },
@@ -132,10 +97,10 @@ export class QueueManager {
           { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
         ],
       }).limit(25);
-      // Double-check and filter tracks with valid URLs
-      return tracks.filter(track => 
-        track.youtubeUrl && 
-        track.youtubeUrl !== 'undefined' && 
+
+      return tracks.filter(track =>
+        track.youtubeUrl &&
+        track.youtubeUrl !== 'undefined' &&
         track.youtubeUrl !== 'null' &&
         track.youtubeUrl.trim() !== '' &&
         /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)
@@ -146,7 +111,9 @@ export class QueueManager {
     }
   }
 
-  // Get a single track by ID
+  /**
+   * Get a single track by ID
+   */
   async getTrackById(trackId: string): Promise<ITrack | null> {
     if (!isDBConnected()) return null;
 
@@ -158,7 +125,9 @@ export class QueueManager {
     }
   }
 
-  // Shuffle array using Fisher-Yates algorithm
+  /**
+   * Shuffle array using Fisher-Yates algorithm
+   */
   private shuffleArray<T>(array: T[]): T[] {
     const shuffled = [...array];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -168,146 +137,11 @@ export class QueueManager {
     return shuffled;
   }
 
-  // Shuffle all playlists (called daily by cron)
-  async shuffleAllPlaylists(): Promise<void> {
-    if (!isDBConnected()) return;
-
-    try {
-      const playlists = await Playlist.find({ isDefault: true });
-
-      for (const playlist of playlists) {
-        const shuffled = this.shuffleArray(playlist.trackIds);
-        playlist.shuffledOrder = shuffled;
-        playlist.lastShuffled = new Date();
-        await playlist.save();
-      }
-
-      console.log(`[QueueManager] Shuffled ${playlists.length} playlists`);
-    } catch (error) {
-      console.error('[QueueManager] Error shuffling playlists:', error);
-    }
-  }
-
-  // Initialize default playlists in database
-  async initializePlaylists(): Promise<void> {
-    if (!isDBConnected()) return;
-
-    try {
-      for (const config of DEFAULT_PLAYLISTS) {
-        const existing = await Playlist.findOne({ name: config.name });
-        
-        if (!existing) {
-          // Get tracks for this category
-          const tracks = await this.getTracks(
-            config.category as TrackCategory | 'all',
-            config.category === 'hidden'
-          );
-
-          const trackIds = tracks.map(t => t.trackId);
-          const shuffled = this.shuffleArray(trackIds);
-
-          await Playlist.create({
-            name: config.name,
-            category: config.category,
-            description: config.description,
-            trackIds,
-            shuffledOrder: shuffled,
-            isDefault: true,
-            lastShuffled: new Date(),
-          });
-
-          console.log(`[QueueManager] Created playlist: ${config.name}`);
-        }
-      }
-    } catch (error) {
-      console.error('[QueueManager] Error initializing playlists:', error);
-    }
-  }
-
-  // Get playlist by category
-  async getPlaylist(category: TrackCategory | 'all'): Promise<ITrack[]> {
-    if (!isDBConnected()) return [];
-
-    try {
-      // Find the playlist
-      let playlist = await Playlist.findOne({ category, isDefault: true });
-
-      if (!playlist) {
-        // If playlist doesn't exist, return tracks directly
-        return await this.getTracks(category, category === 'hidden');
-      }
-
-      // Get tracks in shuffled order (plain objects so MusicPlayer gets string youtubeUrl)
-      const tracks: ITrack[] = [];
-      for (const trackId of playlist.shuffledOrder) {
-        const track = await Track.findOne({ trackId });
-        // Only add tracks with valid YouTube URL
-        if (track && track.youtubeUrl && 
-            track.youtubeUrl !== 'undefined' && 
-            track.youtubeUrl !== 'null' &&
-            String(track.youtubeUrl).trim() !== '' &&
-            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(String(track.youtubeUrl))) {
-          const plain = (track as any).toObject ? (track as any).toObject() : { ...track, youtubeUrl: track.youtubeUrl };
-          tracks.push(plain);
-        } else if (track && (!track.youtubeUrl || track.youtubeUrl === 'undefined')) {
-          console.warn(`[QueueManager] Skipping track "${track.title}" (${trackId}) - no valid YouTube URL`);
-        }
-      }
-
-      return tracks;
-    } catch (error) {
-      console.error('[QueueManager] Error getting playlist:', error);
-      return [];
-    }
-  }
-
-  // Add track to playlist
-  async addTrackToPlaylist(trackId: string, category: TrackCategory): Promise<boolean> {
-    if (!isDBConnected()) return false;
-
-    try {
-      let playlist = await Playlist.findOne({ category, isDefault: true });
-      
-      if (!playlist) {
-        // Create playlist if it doesn't exist
-        playlist = new Playlist({
-          name: category === 'hidden' ? 'Hidden Treasures' : `${category.charAt(0).toUpperCase() + category.slice(1)} Music`,
-          category,
-          description: `Default ${category} playlist`,
-          trackIds: [trackId],
-          shuffledOrder: [trackId],
-          isDefault: true,
-          lastShuffled: new Date(),
-        });
-        await playlist.save();
-        return true;
-      }
-
-      if (!playlist.trackIds.includes(trackId)) {
-        playlist.trackIds.push(trackId);
-        playlist.shuffledOrder.push(trackId);
-        await playlist.save();
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      console.error('[QueueManager] Error adding track to playlist:', error);
-      return false;
-    }
-  }
-
   /**
    * Save a YouTube URL as a permanent track in the database
-   * @param youtubeUrl YouTube URL to save
-   * @param category Category for the track
-   * @param customTitle Optional custom title (uses YouTube title if not provided)
-   * @param customArtist Optional custom artist (uses channel name if not provided)
-   * @returns Object with success status and track data or error message
    */
   async saveYouTubeTrack(
     youtubeUrl: string,
-    category: TrackCategory,
     customTitle?: string,
     customArtist?: string
   ): Promise<{ success: boolean; track?: ITrack; error?: string }> {
@@ -342,7 +176,7 @@ export class QueueManager {
         return { success: false, error: 'Track with this video ID already exists', track: existingById };
       }
 
-      // Fetch video info from YouTube (YouTubeService / youtubei.js)
+      // Fetch video info from YouTube
       const { getVideoInfo } = await import('./YouTubeService');
       const videoInfo = await getVideoInfo(youtubeUrl);
 
@@ -351,12 +185,15 @@ export class QueueManager {
       }
 
       const videoDetails = videoInfo.videoDetails;
-      
+
       // Use custom title/artist if provided, otherwise use YouTube data
       const title = customTitle || videoDetails.title || 'Unknown Title';
-      const artist = customArtist || videoDetails.author?.name || 'Unknown Artist';
+      const artist = customArtist || videoDetails.author?.name || 'PBZ Music';
       const duration = parseInt(videoDetails.lengthSeconds) || 0;
       const description = videoDetails.description?.substring(0, 500) || '';
+
+      // Get thumbnail URL
+      const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
 
       // Create new track
       const newTrack = new Track({
@@ -366,10 +203,10 @@ export class QueueManager {
         youtubeUrl,
         audioSource: 'youtube',
         duration,
-        category,
+        category: 'pbz', // Single category
         description,
         instruments: [],
-        isHidden: category === 'hidden',
+        isHidden: false,
         playCount: 0,
         monthlyPlayCount: 0,
         upvotes: 0,
@@ -377,12 +214,10 @@ export class QueueManager {
         pinCount: 0,
         monthlyPinCount: 0,
         upvotedBy: [],
+        thumbnailUrl,
       });
 
       await newTrack.save();
-
-      // Add track to playlist
-      await this.addTrackToPlaylist(trackId, category);
 
       return { success: true, track: newTrack };
     } catch (error: any) {
@@ -391,7 +226,24 @@ export class QueueManager {
     }
   }
 
-  // Get leaderboard data
+  /**
+   * Remove a track from the database
+   */
+  async removeTrack(trackId: string): Promise<boolean> {
+    if (!isDBConnected()) return false;
+
+    try {
+      const result = await Track.deleteOne({ trackId });
+      return result.deletedCount > 0;
+    } catch (error) {
+      console.error('[QueueManager] Error removing track:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get leaderboard data
+   */
   async getLeaderboard(): Promise<{
     mostPlayed: ITrack | null;
     mostUpvoted: ITrack | null;
@@ -402,15 +254,15 @@ export class QueueManager {
     }
 
     try {
-      const [mostPlayed] = await Track.find({ isHidden: { $ne: true } })
+      const [mostPlayed] = await Track.find({})
         .sort({ monthlyPlayCount: -1 })
         .limit(1);
 
-      const [mostUpvoted] = await Track.find({ isHidden: { $ne: true } })
+      const [mostUpvoted] = await Track.find({})
         .sort({ monthlyUpvotes: -1 })
         .limit(1);
 
-      const [mostPinned] = await Track.find({ isHidden: { $ne: true } })
+      const [mostPinned] = await Track.find({})
         .sort({ monthlyPinCount: -1 })
         .limit(1);
 
@@ -423,5 +275,32 @@ export class QueueManager {
       console.error('[QueueManager] Error fetching leaderboard:', error);
       return { mostPlayed: null, mostUpvoted: null, mostPinned: null };
     }
+  }
+
+  // Legacy methods for backward compatibility
+  async getTracks(category?: TrackCategory | 'all', includeHidden: boolean = false): Promise<ITrack[]> {
+    return this.getAllTracks();
+  }
+
+  async getPlaylist(category: TrackCategory | 'all'): Promise<ITrack[]> {
+    return this.getAllTracks();
+  }
+
+  async addTrackToPlaylist(trackId: string, category: TrackCategory): Promise<boolean> {
+    // No longer needed - single playlist
+    return true;
+  }
+
+  async removeTrackFromPlaylist(trackId: string, category: TrackCategory): Promise<boolean> {
+    return this.removeTrack(trackId);
+  }
+
+  async initializePlaylists(): Promise<void> {
+    // No longer needed - single playlist
+    console.log('[QueueManager] Using single playlist: Phantom Blade Zero Melody');
+  }
+
+  async shuffleAllPlaylists(): Promise<void> {
+    // No longer needed - single playlist
   }
 }

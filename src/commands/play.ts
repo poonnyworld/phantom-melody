@@ -89,7 +89,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           youtubeUrl: query,
           audioSource: 'youtube' as const, // Temporary tracks from URL are always YouTube
           duration: parseInt(videoDetails.lengthSeconds) || 0,
-          category: 'battle', // Default category
+          category: 'pbz' as const, // Default category
           description: videoDetails.description || '',
           instruments: [],
           isHidden: false,

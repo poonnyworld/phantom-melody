@@ -1,30 +1,17 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { isDBConnected } from '../utils/connectDB';
-import { Track, TrackCategory } from '../models/Track';
-import { Playlist } from '../models/Playlist';
+import { Track } from '../models/Track';
+import { formatDuration } from '../config/playlists';
 
 export const data = new SlashCommandBuilder()
   .setName('addtrack')
-  .setDescription('Add a YouTube URL as a permanent track to the database')
+  .setDescription('[Admin] Add a YouTube URL as a track to the playlist')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addStringOption(option =>
     option
       .setName('url')
       .setDescription('YouTube URL to add')
       .setRequired(true)
-  )
-  .addStringOption(option =>
-    option
-      .setName('category')
-      .setDescription('Category for this track')
-      .setRequired(true)
-      .addChoices(
-        { name: 'Battle', value: 'battle' },
-        { name: 'Story', value: 'story' },
-        { name: 'Exploration', value: 'exploration' },
-        { name: 'Emotional', value: 'emotional' },
-        { name: 'Ambient', value: 'ambient' },
-        { name: 'Hidden', value: 'hidden' }
-      )
   )
   .addStringOption(option =>
     option
@@ -75,7 +62,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply();
 
   const url = interaction.options.getString('url', true);
-  const category = interaction.options.getString('category', true) as TrackCategory;
   const customTitle = interaction.options.getString('title', false);
   const customArtist = interaction.options.getString('artist', false);
 
@@ -103,7 +89,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const existingTrack = await Track.findOne({ youtubeUrl: url });
     if (existingTrack) {
       await interaction.editReply({
-        content: `❌ This YouTube URL is already in the database!\n\n**Track:** ${existingTrack.title}\n**Track ID:** \`${existingTrack.trackId}\`\n**Category:** ${existingTrack.category}`,
+        content: `❌ This YouTube URL is already in the database!\n\n**Track:** ${existingTrack.title}\n**Track ID:** \`${existingTrack.trackId}\``,
       });
       return;
     }
@@ -123,7 +109,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     
     // Use custom title/artist if provided, otherwise use YouTube data
     const title = customTitle || videoDetails.title || 'Unknown Title';
-    const artist = customArtist || videoDetails.author?.name || 'Unknown Artist';
+    const artist = customArtist || videoDetails.author?.name || 'PBZ Music';
     const duration = parseInt(videoDetails.lengthSeconds) || 0;
     const description = videoDetails.description?.substring(0, 500) || '';
 
@@ -139,7 +125,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       return;
     }
 
-    // Create new track
+    // Get thumbnail URL
+    const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+
+    // Create new track with single category 'pbz'
     const newTrack = new Track({
       trackId,
       title,
@@ -147,10 +136,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       youtubeUrl: url,
       audioSource: 'youtube',
       duration,
-      category,
+      category: 'pbz',
       description,
       instruments: [],
-      isHidden: category === 'hidden',
+      isHidden: false,
       playCount: 0,
       monthlyPlayCount: 0,
       upvotes: 0,
@@ -158,52 +147,36 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       pinCount: 0,
       monthlyPinCount: 0,
       upvotedBy: [],
+      thumbnailUrl,
     });
 
     await newTrack.save();
-
-    // Add track to playlist
-    let playlist = await Playlist.findOne({ category, isDefault: true });
-    
-    if (!playlist) {
-      // Create playlist if it doesn't exist
-      playlist = new Playlist({
-        name: category === 'hidden' ? 'Hidden Treasures' : `${category.charAt(0).toUpperCase() + category.slice(1)} Music`,
-        category,
-        description: `Default ${category} playlist`,
-        trackIds: [trackId],
-        shuffledOrder: [trackId],
-        isDefault: true,
-        lastShuffled: new Date(),
-      });
-      await playlist.save();
-    } else {
-      // Add trackId to playlist if not already present
-      if (!playlist.trackIds.includes(trackId)) {
-        playlist.trackIds.push(trackId);
-        playlist.shuffledOrder.push(trackId);
-        await playlist.save();
-      }
-    }
 
     const embed = new EmbedBuilder()
       .setTitle('✅ Track Added Successfully!')
       .setDescription(`**${title}**`)
       .addFields(
         { name: 'Artist', value: artist, inline: true },
-        { name: 'Category', value: category, inline: true },
         { name: 'Track ID', value: `\`${trackId}\``, inline: true },
-        { name: 'Duration', value: duration > 0 ? `${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')}` : 'Unknown', inline: true },
+        { name: 'Duration', value: formatDuration(duration), inline: true },
         { name: 'YouTube URL', value: `[Watch on YouTube](${url})`, inline: false }
       )
-      .setColor(0x9B59B6)
+      .setColor(0x57F287)
+      .setThumbnail(thumbnailUrl)
       .setFooter({ text: `Added by ${interaction.user.username}` });
 
     await interaction.editReply({ embeds: [embed] });
 
     // Log the addition
     const { musicLogService } = await import('../services/MusicLogService');
-    musicLogService.addLog(`Track added: ${title} by ${artist} (${category})`, 'info');
+    musicLogService.addLog(`Admin added track: ${title} by ${artist}`, 'info');
+
+    // Refresh song selection menus
+    const client = interaction.client;
+    const queueManager = client.queueManager;
+    const { MusicInteractionService } = await import('../services/MusicInteractionService');
+    const musicInteractionService = new MusicInteractionService(client, queueManager);
+    await musicInteractionService.refreshSongSelection();
 
   } catch (error: any) {
     console.error('[AddTrack Command] Error:', error);

@@ -23,7 +23,7 @@ const PlaylistSchema: Schema = new Schema(
     },
     category: {
       type: String,
-      enum: ['battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden', 'all'],
+      enum: ['pbz', 'battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden', 'all'],
       required: true,
     },
     description: {

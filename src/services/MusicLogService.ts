@@ -17,10 +17,10 @@ export class MusicLogService {
    */
   public start(client: Client): void {
     this.client = client;
-    const channelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.ADMIN_LOGS_CHANNEL_ID || process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
 
     console.log('[MusicLogService] Initializing music log service...');
-    console.log(`[MusicLogService] Display channel ID from env: ${channelId || 'NOT SET'}`);
+    console.log(`[MusicLogService] Log channel ID from env: ${channelId || 'NOT SET'} (LOGS_ID for admin, else DISPLAY)`);
 
     if (!channelId) {
       console.warn('[MusicLogService] ⚠️ Display channel ID not set. Music log service will not start.');
@@ -89,7 +89,7 @@ export class MusicLogService {
    * Ensure the log message exists in the channel
    */
   private async ensureLogMessage(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.ADMIN_LOGS_CHANNEL_ID || process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;
@@ -175,7 +175,7 @@ export class MusicLogService {
    * Update the log message in the channel
    */
   private async updateLogMessage(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.ADMIN_LOGS_CHANNEL_ID || process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;

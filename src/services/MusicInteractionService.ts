@@ -1,6 +1,6 @@
 import { Client, TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Message, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { QueueManager } from './QueueManager';
-import { DEFAULT_PLAYLISTS } from '../config/playlists';
+import { MAIN_PLAYLIST, MAX_QUEUE_SIZE, SKIP_VOTES_REQUIRED } from '../config/playlists';
 
 export class MusicInteractionService {
   private client: Client | null = null;
@@ -48,37 +48,28 @@ export class MusicInteractionService {
   private async setupAllButtons(client: Client): Promise<void> {
     console.log('[MusicInteractionService] Setting up all persistent buttons...');
 
-    // Get channel IDs (support both new separate channels and legacy single channel)
     const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const displayChannelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const honorChannelId = process.env.PHANTOM_MELODY_HONOR_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const addChannelId = process.env.PHANTOM_MELODY_ADD_CHANNEL_ID;
+    const playlistControlAdminId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
 
-    if (!controlChannelId || !displayChannelId || !honorChannelId) {
+    if (!controlChannelId) {
       console.warn('[MusicInteractionService] Channel IDs not set, skipping button setup.');
       return;
     }
 
-    // Setup Music Control buttons (in control channel)
+    // Setup simplified Music Control buttons (Skip vote + View Queue + Song selection)
     await this.ensureMusicControlButtons(client, controlChannelId);
 
-    // Setup Playlist Selection buttons (in control channel)
-    await this.ensurePlaylistButtons(client, controlChannelId);
+    // Setup song selection from playlist (for users to pick songs)
+    await this.ensureSongSelectionMessage(client, controlChannelId);
 
-    // Setup Honor Point buttons (in honor channel)
-    await this.ensureHonorButtons(client, honorChannelId);
-
-    // Setup Add Song buttons (in add channel - optional)
-    if (addChannelId) {
-      await this.ensureAddSongButtons(client, addChannelId);
+    // Setup Playlist Control Admin channel (admin-only add songs)
+    if (playlistControlAdminId) {
+      await this.ensureAdminPlaylistControl(client, playlistControlAdminId);
     }
-
-    // Display channel is now handled by MusicLogService
-    // No need to create a separate "Display Channel" embed
   }
 
   /**
-   * Setup Music Control buttons (Play/Pause/Skip/Queue)
+   * Setup simplified Music Control buttons (Skip vote + View Queue)
    */
   private async ensureMusicControlButtons(client: Client, channelId: string): Promise<void> {
     try {
@@ -104,29 +95,21 @@ export class MusicInteractionService {
         .setColor(0x9B59B6)
         .setTitle('🎵 Music Player Controls')
         .setDescription(
-          '**Control the music player with the buttons below!**\n\n' +
-          '• **Play/Pause** - Control playback\n' +
-          '• **Skip** - Skip to next track\n' +
-          '• **Queue** - View current queue\n' +
-          '• **Now Playing** - View current track info\n\n' +
-          '💡 Make sure you\'re in the voice channel to use these controls!'
+          '**Control the music player with the buttons below**\n\n' +
+          `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)\n` +
+          '• **View Queue** — View current queue\n\n' +
+          '💡 Select songs from the menu below to add to queue!'
         )
         .setFooter({
-          text: 'Use the buttons below to control music playback!',
+          text: `🗡️ Phantom Blade Zero Melody • Queue limit: ${MAX_QUEUE_SIZE} songs`,
         })
         .setTimestamp();
 
-      // Create buttons
-      const playPauseButton = new ButtonBuilder()
-        .setCustomId('music_playpause')
-        .setLabel('Play/Pause')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('⏯️');
-
+      // Create buttons - only Skip (vote) and View Queue
       const skipButton = new ButtonBuilder()
-        .setCustomId('music_skip')
-        .setLabel('Skip')
-        .setStyle(ButtonStyle.Secondary)
+        .setCustomId('music_vote_skip')
+        .setLabel('Vote Skip')
+        .setStyle(ButtonStyle.Primary)
         .setEmoji('⏭️');
 
       const queueButton = new ButtonBuilder()
@@ -135,20 +118,8 @@ export class MusicInteractionService {
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('📋');
 
-      const nowPlayingButton = new ButtonBuilder()
-        .setCustomId('music_nowplaying')
-        .setLabel('Now Playing')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('🎵');
-
-      const stopButton = new ButtonBuilder()
-        .setCustomId('music_stop')
-        .setLabel('Stop')
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji('⏹️');
-
       const row1 = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(playPauseButton, skipButton, queueButton, nowPlayingButton, stopButton);
+        .addComponents(skipButton, queueButton);
 
       // Try to find existing button message
       let buttonMessage: Message | null = null;
@@ -159,28 +130,24 @@ export class MusicInteractionService {
           const storedMessage = await textChannel.messages.fetch(storedMessageId);
           if (storedMessage) {
             buttonMessage = storedMessage;
-            console.log(`[MusicInteractionService] ✓ Found existing music control button message: ${storedMessageId}`);
           }
         } catch (error) {
-          console.log(`[MusicInteractionService] Stored music control button message ID ${storedMessageId} was deleted, clearing...`);
           this.buttonMessageIds.delete(`${channelId}_controls`);
         }
       }
 
       if (!buttonMessage) {
-        console.log(`[MusicInteractionService] Searching for existing music control button message...`);
         const messages = await textChannel.messages.fetch({ limit: 50 });
         for (const [id, msg] of messages) {
           if (msg.author.id === client.user!.id) {
             const hasButton = msg.components.some((row: any) =>
               row.components.some((component: any) =>
-                component.type === 2 && component.customId === 'music_playpause'
+                component.type === 2 && (component.customId === 'music_vote_skip' || component.customId === 'music_playpause')
               )
             );
             if (hasButton) {
               buttonMessage = msg;
               this.buttonMessageIds.set(`${channelId}_controls`, id);
-              console.log(`[MusicInteractionService] ✓ Found music control button message: ${id}`);
               break;
             }
           }
@@ -203,7 +170,6 @@ export class MusicInteractionService {
           const newMessage = await textChannel.send({ embeds: [embed], components: [row1] });
           this.buttonMessageIds.set(`${channelId}_controls`, newMessage.id);
           console.log(`[MusicInteractionService] ✓ Music control button message sent successfully`);
-          console.log(`[MusicInteractionService] Stored music control button message ID: ${newMessage.id}`);
         } catch (error) {
           console.error(`[MusicInteractionService] ❌ Error sending music control button message:`, error);
         }
@@ -214,9 +180,9 @@ export class MusicInteractionService {
   }
 
   /**
-   * Setup Playlist Selection buttons
+   * Setup song selection from the single playlist
    */
-  private async ensurePlaylistButtons(client: Client, channelId: string): Promise<void> {
+  private async ensureSongSelectionMessage(client: Client, channelId: string): Promise<void> {
     try {
       const channel = await client.channels.fetch(channelId);
       if (!channel || !channel.isTextBased()) {
@@ -225,41 +191,47 @@ export class MusicInteractionService {
 
       const textChannel = channel as TextChannel;
 
+      // Get all tracks from the main playlist
+      const tracks = await this.queueManager.getAllTracks();
+      const trackCount = tracks.length;
+
       const embed = new EmbedBuilder()
         .setColor(0x9B59B6)
-        .setTitle('🎵 Playlist Selection')
+        .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
         .setDescription(
-          '**Choose a playlist to play!**\n\n' +
-          'Select a playlist from the menu below to start playing music.\n\n' +
-          '💡 Make sure you\'re in the voice channel first!'
+          `${MAIN_PLAYLIST.description}\n\n` +
+          `**${trackCount}** tracks in playlist\n\n` +
+          '📋 Select songs from the menu below to add to queue\n' +
+          `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks`
         )
         .setFooter({
-          text: 'Select a playlist from the menu below!',
+          text: '🗡️ Phantom Blade Zero Melody',
         })
         .setTimestamp();
 
-      // Create select menu for playlists
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('playlist_select')
-        .setPlaceholder('Choose a playlist...');
+      // Create select menu for songs (up to 25 options)
+      const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
 
-      for (const playlist of DEFAULT_PLAYLISTS) {
-        // Include all playlists including hidden (users will see error if not unlocked)
-        selectMenu.addOptions(
+      if (tracks.length > 0) {
+        const maxOptions = 25;
+        const options = tracks.slice(0, maxOptions).map((track: any) =>
           new StringSelectMenuOptionBuilder()
-            .setLabel(playlist.name)
-            .setDescription(playlist.description + (playlist.category === 'hidden' ? ' (Requires Unlock)' : ''))
-            .setValue(playlist.category)
-            .setEmoji(playlist.emoji)
+            .setLabel((track.title || track.trackId).slice(0, 100))
+            .setDescription((track.artist || 'PBZ Music').slice(0, 100))
+            .setValue(track.trackId)
         );
-      }
 
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>()
-        .addComponents(selectMenu);
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('song_select')
+          .setPlaceholder('Select a song to add to queue...')
+          .addOptions(options);
+
+        components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
+      }
 
       // Try to find existing message
       let buttonMessage: Message | null = null;
-      const storedMessageId = this.buttonMessageIds.get(`${channelId}_playlist`);
+      const storedMessageId = this.buttonMessageIds.get(`${channelId}_songs`);
 
       if (storedMessageId) {
         try {
@@ -268,7 +240,7 @@ export class MusicInteractionService {
             buttonMessage = storedMessage;
           }
         } catch (error) {
-          this.buttonMessageIds.delete(`${channelId}_playlist`);
+          this.buttonMessageIds.delete(`${channelId}_songs`);
         }
       }
 
@@ -278,12 +250,12 @@ export class MusicInteractionService {
           if (msg.author.id === client.user!.id) {
             const hasSelectMenu = msg.components.some((row: any) =>
               row.components.some((component: any) =>
-                component.type === 3 && component.customId === 'playlist_select'
+                component.type === 3 && component.customId === 'song_select'
               )
             );
             if (hasSelectMenu) {
               buttonMessage = msg;
-              this.buttonMessageIds.set(`${channelId}_playlist`, id);
+              this.buttonMessageIds.set(`${channelId}_songs`, id);
               break;
             }
           }
@@ -292,266 +264,133 @@ export class MusicInteractionService {
 
       if (buttonMessage) {
         try {
-          await buttonMessage.edit({ embeds: [embed], components: [row] });
-          console.log(`[MusicInteractionService] ✓ Playlist button message updated successfully`);
+          await buttonMessage.edit({ embeds: [embed], components });
+          console.log(`[MusicInteractionService] ✓ Song selection message updated successfully`);
         } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error editing playlist button message:`, error);
-          this.buttonMessageIds.delete(`${channelId}_playlist`);
+          console.error(`[MusicInteractionService] ❌ Error editing song selection message:`, error);
+          this.buttonMessageIds.delete(`${channelId}_songs`);
           buttonMessage = null;
         }
       }
 
       if (!buttonMessage) {
         try {
-          const newMessage = await textChannel.send({ embeds: [embed], components: [row] });
-          this.buttonMessageIds.set(`${channelId}_playlist`, newMessage.id);
-          console.log(`[MusicInteractionService] ✓ Playlist button message sent successfully`);
+          const newMessage = await textChannel.send({ embeds: [embed], components });
+          this.buttonMessageIds.set(`${channelId}_songs`, newMessage.id);
+          console.log(`[MusicInteractionService] ✓ Song selection message sent successfully`);
         } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error sending playlist button message:`, error);
+          console.error(`[MusicInteractionService] ❌ Error sending song selection message:`, error);
         }
       }
     } catch (error) {
-      console.error(`[MusicInteractionService] ❌ Critical error setting up playlist buttons:`, error);
+      console.error(`[MusicInteractionService] ❌ Critical error setting up song selection:`, error);
     }
   }
 
   /**
-   * Setup Honor Point buttons (Pin/Upvote/Unlock)
+   * Setup Admin Playlist Control channel (admin-only add/remove songs)
    */
-  private async ensureHonorButtons(client: Client, channelId: string): Promise<void> {
+  private async ensureAdminPlaylistControl(client: Client, channelId: string): Promise<void> {
     try {
       const channel = await client.channels.fetch(channelId);
       if (!channel || !channel.isTextBased()) {
+        console.error(`[MusicInteractionService] ❌ Admin playlist control channel ${channelId} not found.`);
         return;
       }
 
       const textChannel = channel as TextChannel;
-
-      const embed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle('💎 Honor Points Features')
-        .setDescription(
-          '**Use Honor Points to enhance your music experience!**\n\n' +
-          '• **Pin Track** (5 points) - Pin a track to play next\n' +
-          '• **Upvote Track** (2 points) - Show love for your favorite tracks\n' +
-          '• **Unlock Hidden Playlist** (50 points) - Access exclusive tracks\n\n' +
-          '💡 Earn Honor Points by interacting with Honor Bot!'
-        )
-        .setFooter({
-          text: 'Use the buttons below to use Honor Points features!',
-        })
-        .setTimestamp();
-
-      const pinButton = new ButtonBuilder()
-        .setCustomId('honor_pin')
-        .setLabel('Pin Track')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📌');
-
-      const upvoteButton = new ButtonBuilder()
-        .setCustomId('honor_upvote')
-        .setLabel('Upvote Track')
-        .setStyle(ButtonStyle.Success)
-        .setEmoji('❤️');
-
-      const unlockButton = new ButtonBuilder()
-        .setCustomId('honor_unlock')
-        .setLabel('Unlock Hidden')
-        .setStyle(ButtonStyle.Danger)
-        .setEmoji('🔮');
-
-      const balanceButton = new ButtonBuilder()
-        .setCustomId('honor_balance')
-        .setLabel('Check Balance')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('💰');
-
-      const row = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(pinButton, upvoteButton, unlockButton, balanceButton);
-
-      // Try to find existing message
-      let buttonMessage: Message | null = null;
-      const storedMessageId = this.buttonMessageIds.get(`${channelId}_honor`);
-
-      if (storedMessageId) {
-        try {
-          const storedMessage = await textChannel.messages.fetch(storedMessageId);
-          if (storedMessage) {
-            buttonMessage = storedMessage;
-          }
-        } catch (error) {
-          this.buttonMessageIds.delete(`${channelId}_honor`);
-        }
-      }
-
-      if (!buttonMessage) {
-        const messages = await textChannel.messages.fetch({ limit: 50 });
-        for (const [id, msg] of messages) {
-          if (msg.author.id === client.user!.id) {
-            const hasButton = msg.components.some((row: any) =>
-              row.components.some((component: any) =>
-                component.type === 2 && component.customId === 'honor_pin'
-              )
-            );
-            if (hasButton) {
-              buttonMessage = msg;
-              this.buttonMessageIds.set(`${channelId}_honor`, id);
-              break;
-            }
-          }
-        }
-      }
-
-      if (buttonMessage) {
-        try {
-          await buttonMessage.edit({ embeds: [embed], components: [row] });
-          console.log(`[MusicInteractionService] ✓ Honor button message updated successfully`);
-        } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error editing honor button message:`, error);
-          this.buttonMessageIds.delete(`${channelId}_honor`);
-          buttonMessage = null;
-        }
-      }
-
-      if (!buttonMessage) {
-        try {
-          const newMessage = await textChannel.send({ embeds: [embed], components: [row] });
-          this.buttonMessageIds.set(`${channelId}_honor`, newMessage.id);
-          console.log(`[MusicInteractionService] ✓ Honor button message sent successfully`);
-        } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error sending honor button message:`, error);
-        }
-      }
-    } catch (error) {
-      console.error(`[MusicInteractionService] ❌ Critical error setting up honor buttons:`, error);
-    }
-  }
-
-  /**
-   * Setup Add Song buttons (bottom-based UX: add songs via buttons in dedicated channel)
-   */
-  private async ensureAddSongButtons(client: Client, channelId: string): Promise<void> {
-    try {
-      const channel = await client.channels.fetch(channelId);
-      if (!channel || !channel.isTextBased()) {
-        console.error(`[MusicInteractionService] ❌ Add song channel ${channelId} not found or not text-based.`);
-        return;
-      }
-
-      const textChannel = channel as TextChannel;
-
       const botMember = await textChannel.guild.members.fetch(client.user!.id);
       const permissions = textChannel.permissionsFor(botMember);
       if (!permissions || !permissions.has('SendMessages') || !permissions.has('ViewChannel')) {
-        console.error(`[MusicInteractionService] ❌ Bot lacks permissions in add song channel ${channelId}.`);
+        console.error(`[MusicInteractionService] ❌ Bot lacks permissions in admin channel ${channelId}.`);
         return;
       }
 
+      const tracks = await this.queueManager.getAllTracks();
+      const trackCount = tracks.length;
+
       const embed = new EmbedBuilder()
-        .setColor(0x9B59B6)
-        .setTitle('➕ Add Songs')
+        .setColor(0x5865F2)
+        .setTitle(`🔧 Admin: ${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
         .setDescription(
-          '**Add songs with the buttons below!**\n\n' +
-          '• Choose a **category** to **save** the song to the database and add it to that playlist.\n' +
-          '• **Play URL Only** adds the song to the queue and plays it without saving.\n\n' +
-          '💡 You must be in the voice channel to play. One request at a time per server.'
+          `**${trackCount}** tracks in playlist\n\n` +
+          '**Admin Commands:**\n' +
+          '• **Add Song** — Add song via YouTube URL\n' +
+          '• **View & Remove** — View track list and remove\n\n' +
+          '⚠️ Admin only'
         )
-        .setFooter({ text: 'Use the buttons below to add songs!' })
+        .setFooter({ text: 'Phantom Blade Zero Melody - Admin Panel' })
         .setTimestamp();
 
-      const battleBtn = new ButtonBuilder()
-        .setCustomId('add_song_battle')
-        .setLabel('Battle')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('⚔️');
-      const storyBtn = new ButtonBuilder()
-        .setCustomId('add_song_story')
-        .setLabel('Story')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📖');
-      const explorationBtn = new ButtonBuilder()
-        .setCustomId('add_song_exploration')
-        .setLabel('Exploration')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('🗺️');
-      const emotionalBtn = new ButtonBuilder()
-        .setCustomId('add_song_emotional')
-        .setLabel('Emotional')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('💫');
-      const ambientBtn = new ButtonBuilder()
-        .setCustomId('add_song_ambient')
-        .setLabel('Ambient')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('🌙');
-
-      const row1 = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(battleBtn, storyBtn, explorationBtn, emotionalBtn, ambientBtn);
-
-      const hiddenBtn = new ButtonBuilder()
-        .setCustomId('add_song_hidden')
-        .setLabel('Hidden')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('🔮');
-      const playOnlyBtn = new ButtonBuilder()
-        .setCustomId('add_song_play_only')
-        .setLabel('Play URL Only')
+      const addBtn = new ButtonBuilder()
+        .setCustomId('admin_add_song')
+        .setLabel('Add Song')
         .setStyle(ButtonStyle.Success)
-        .setEmoji('▶️');
+        .setEmoji('➕');
+      const viewBtn = new ButtonBuilder()
+        .setCustomId('admin_view_songs')
+        .setLabel('View & Remove')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('📋');
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(addBtn, viewBtn);
 
-      const row2 = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(hiddenBtn, playOnlyBtn);
-
-      let buttonMessage: Message | null = null;
-      const storedMessageId = this.buttonMessageIds.get(`${channelId}_addsong`);
-
-      if (storedMessageId) {
+      const storageKey = `${channelId}_admin`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
         try {
-          const storedMessage = await textChannel.messages.fetch(storedMessageId);
-          if (storedMessage) buttonMessage = storedMessage;
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
         } catch {
-          this.buttonMessageIds.delete(`${channelId}_addsong`);
+          this.buttonMessageIds.delete(storageKey);
         }
       }
-
-      if (!buttonMessage) {
+      if (!message) {
         const messages = await textChannel.messages.fetch({ limit: 50 });
         for (const [id, msg] of messages) {
-          if (msg.author.id === client.user!.id) {
-            const hasAddSong = msg.components.some((row: any) =>
-              row.components.some((c: any) => c.type === 2 && c.customId === 'add_song_battle')
-            );
-            if (hasAddSong) {
-              buttonMessage = msg;
-              this.buttonMessageIds.set(`${channelId}_addsong`, id);
-              break;
-            }
+          if (msg.author.id === client.user!.id && msg.components.some((row: any) => row.components.some((c: any) => c.customId === 'admin_add_song'))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, id);
+            break;
           }
         }
       }
-
-      if (buttonMessage) {
+      if (message) {
         try {
-          await buttonMessage.edit({ embeds: [embed], components: [row1, row2] });
-          console.log(`[MusicInteractionService] ✓ Add song button message updated`);
+          await message.edit({ embeds: [embed], components: [row] });
         } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error editing add song message:`, error);
-          this.buttonMessageIds.delete(`${channelId}_addsong`);
-          buttonMessage = null;
+          console.error(`[MusicInteractionService] ❌ Error editing admin message:`, error);
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        }
+      }
+      if (!message) {
+        try {
+          const newMessage = await textChannel.send({ embeds: [embed], components: [row] });
+          this.buttonMessageIds.set(storageKey, newMessage.id);
+        } catch (error) {
+          console.error(`[MusicInteractionService] ❌ Error sending admin message:`, error);
         }
       }
 
-      if (!buttonMessage) {
-        try {
-          const newMessage = await textChannel.send({ embeds: [embed], components: [row1, row2] });
-          this.buttonMessageIds.set(`${channelId}_addsong`, newMessage.id);
-          console.log(`[MusicInteractionService] ✓ Add song button message sent`);
-        } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error sending add song message:`, error);
-        }
-      }
+      console.log(`[MusicInteractionService] ✓ Admin playlist control message updated`);
     } catch (error) {
-      console.error(`[MusicInteractionService] ❌ Critical error setting up add song buttons:`, error);
+      console.error(`[MusicInteractionService] ❌ Critical error setting up admin playlist control:`, error);
+    }
+  }
+
+  /**
+   * Refresh the song selection menu (call after adding/removing tracks)
+   */
+  public async refreshSongSelection(): Promise<void> {
+    const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    if (controlChannelId && this.client) {
+      await this.ensureSongSelectionMessage(this.client, controlChannelId);
+    }
+
+    const adminChannelId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
+    if (adminChannelId && this.client) {
+      await this.ensureAdminPlaylistControl(this.client, adminChannelId);
     }
   }
 

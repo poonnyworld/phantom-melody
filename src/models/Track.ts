@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type TrackCategory = 'battle' | 'story' | 'exploration' | 'emotional' | 'ambient' | 'hidden';
+// Simplified to single category for Phantom Blade Zero
+export type TrackCategory = 'pbz';
 export type AudioSource = 'youtube' | 'local';
 
 export interface ITrack extends Document {
@@ -22,6 +23,7 @@ export interface ITrack extends Document {
   pinCount: number; // Total pins
   monthlyPinCount: number; // Monthly pins
   upvotedBy: string[]; // Array of user IDs who upvoted
+  thumbnailUrl?: string; // YouTube thumbnail URL
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -40,7 +42,7 @@ const TrackSchema: Schema = new Schema(
     },
     artist: {
       type: String,
-      default: 'Unknown Artist',
+      default: 'PBZ Music',
     },
     youtubeUrl: {
       type: String,
@@ -61,8 +63,8 @@ const TrackSchema: Schema = new Schema(
     },
     category: {
       type: String,
-      enum: ['battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden'],
-      default: 'ambient',
+      enum: ['pbz', 'battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden'], // Keep old ones for migration
+      default: 'pbz',
     },
     description: {
       type: String,
@@ -103,6 +105,10 @@ const TrackSchema: Schema = new Schema(
     upvotedBy: {
       type: [String],
       default: [],
+    },
+    thumbnailUrl: {
+      type: String,
+      required: false,
     },
   },
   {

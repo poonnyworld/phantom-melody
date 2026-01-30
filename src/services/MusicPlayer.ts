@@ -17,12 +17,15 @@ import { getAudioStream, extractVideoId } from './YouTubeService';
 import { Track, ITrack } from '../models/Track';
 import { isDBConnected } from '../utils/connectDB';
 import { setUserCurrentTrack } from '../events/voiceStateUpdate';
+import { MAX_QUEUE_SIZE } from '../config/playlists';
+import { musicLogService } from './MusicLogService';
 import * as fs from 'fs';
 import * as path from 'path';
 
 export interface QueueItem {
   track: ITrack;
   requestedBy?: string;
+  requestedByUsername?: string;
   isPinned?: boolean;
 }
 
@@ -37,6 +40,14 @@ export class MusicPlayer {
   private currentTrack: QueueItem | null = null;
   private queue: QueueItem[] = [];
   private pinnedQueue: QueueItem[] = []; // Priority queue for pinned tracks
+  
+  // Playback position tracking
+  private trackStartTime: number = 0;
+  private pausedAt: number = 0;
+  private totalPausedTime: number = 0;
+
+  // Skip vote tracking
+  private skipVotes: Set<string> = new Set();
 
   constructor(client: Client, guildId: string) {
     this.client = client;
@@ -53,6 +64,18 @@ export class MusicPlayer {
 
   private setupPlayerListeners() {
     this.audioPlayer.on(AudioPlayerStatus.Idle, async () => {
+      // Log track finished
+      if (this.currentTrack) {
+        const finishedTrack = this.currentTrack;
+        musicLogService.addLog(`🏁 Finished: **${finishedTrack.track.title}**`, 'info');
+      }
+      
+      // Reset playback tracking
+      this.trackStartTime = 0;
+      this.pausedAt = 0;
+      this.totalPausedTime = 0;
+      this.skipVotes.clear();
+      
       // Track finished playing
       if (this.isLooping && this.currentTrack) {
         // Replay the same track
@@ -61,6 +84,18 @@ export class MusicPlayer {
         // Play next track
         await this.playNext();
       }
+    });
+
+    this.audioPlayer.on(AudioPlayerStatus.Playing, () => {
+      if (this.pausedAt > 0) {
+        // Resuming from pause
+        this.totalPausedTime += Date.now() - this.pausedAt;
+        this.pausedAt = 0;
+      }
+    });
+
+    this.audioPlayer.on(AudioPlayerStatus.Paused, () => {
+      this.pausedAt = Date.now();
     });
 
     this.audioPlayer.on('error', (error) => {
@@ -169,6 +204,10 @@ export class MusicPlayer {
     this.currentTrack = null;
     this.queue = [];
     this.pinnedQueue = [];
+    this.trackStartTime = 0;
+    this.pausedAt = 0;
+    this.totalPausedTime = 0;
+    this.skipVotes.clear();
   }
 
   setTextChannel(channelId: string) {
@@ -179,8 +218,17 @@ export class MusicPlayer {
     return this.textChannelId;
   }
 
-  async addToQueue(track: ITrack, requestedBy?: string, isPinned: boolean = false): Promise<void> {
-    const queueItem: QueueItem = { track, requestedBy, isPinned };
+  /**
+   * Add a track to the queue
+   * @returns true if added, false if queue is full
+   */
+  async addToQueue(track: ITrack, requestedBy?: string, requestedByUsername?: string, isPinned: boolean = false): Promise<boolean> {
+    // Check queue limit (excluding pinned tracks)
+    if (!isPinned && this.queue.length >= MAX_QUEUE_SIZE) {
+      return false;
+    }
+
+    const queueItem: QueueItem = { track, requestedBy, requestedByUsername, isPinned };
     
     if (isPinned) {
       this.pinnedQueue.push(queueItem);
@@ -192,22 +240,29 @@ export class MusicPlayer {
     if (!this.isPlaying) {
       await this.playNext();
     }
+
+    return true;
   }
 
-  async addTracksToQueue(tracks: ITrack[], shuffle: boolean = false): Promise<void> {
+  async addTracksToQueue(tracks: ITrack[], shuffle: boolean = false): Promise<number> {
     let tracksToAdd = [...tracks];
     
     if (shuffle) {
       tracksToAdd = this.shuffleArray(tracksToAdd);
     }
 
+    let addedCount = 0;
     for (const track of tracksToAdd) {
+      if (this.queue.length >= MAX_QUEUE_SIZE) break;
       this.queue.push({ track });
+      addedCount++;
     }
 
-    if (!this.isPlaying) {
+    if (!this.isPlaying && addedCount > 0) {
       await this.playNext();
     }
+
+    return addedCount;
   }
 
   private shuffleArray<T>(array: T[]): T[] {
@@ -247,13 +302,21 @@ export class MusicPlayer {
     this.isPlaying = false;
     this.currentTrack = null;
     const { musicLogService } = await import('./MusicLogService');
-    musicLogService.addLog('Queue is empty. Add more tracks with `/play` or `/playlist`!', 'info');
+    musicLogService.addLog('Queue is empty. Select songs from the playlist!', 'info');
+    
+    // Update display to show empty state
+    const { nowPlayingDisplayService } = await import('./NowPlayingDisplayService');
+    nowPlayingDisplayService.updateDisplay();
   }
 
   private async playTrack(item: QueueItem): Promise<void> {
     try {
       this.isPlaying = true;
       this.currentTrack = item;
+      this.trackStartTime = Date.now();
+      this.pausedAt = 0;
+      this.totalPausedTime = 0;
+      this.skipVotes.clear();
 
       // Debug: Log track info
       console.log(`[MusicPlayer] Attempting to play track: ${item.track.title}`);
@@ -299,14 +362,15 @@ export class MusicPlayer {
         );
       }
 
-      // Update listening history for users in voice channel
-      // This will be handled by voiceStateUpdate event
+      // Update Now Playing display
+      const { nowPlayingDisplayService } = await import('./NowPlayingDisplayService');
+      nowPlayingDisplayService.updateDisplay();
 
       // Add log entry (Now Playing will be shown in log)
       const { musicLogService } = await import('./MusicLogService');
-      const artistInfo = item.track.artist ? ` - ${item.track.artist}` : '';
-      const sourceIcon = audioSource === 'local' ? '💾' : '🎵';
-      musicLogService.addLog(`${sourceIcon} Now playing: **${item.track.title}**${artistInfo}${item.isPinned ? ' 📌 (Pinned)' : ''}`, 'success');
+      const artistInfo = item.track.artist ? ` — ${item.track.artist}` : '';
+      const requesterInfo = item.requestedByUsername ? ` (requested by ${item.requestedByUsername})` : '';
+      musicLogService.addLog(`🎵 Now playing: **${item.track.title}**${artistInfo}${requesterInfo}`, 'success');
 
     } catch (error: any) {
       console.error('[MusicPlayer] Error playing track:', error);
@@ -448,6 +512,32 @@ export class MusicPlayer {
     return false;
   }
 
+  /**
+   * Add a skip vote
+   * @returns { voted: boolean, totalVotes: number, required: number, skipped: boolean }
+   */
+  addSkipVote(userId: string): { voted: boolean; totalVotes: number; required: number; skipped: boolean } {
+    const { SKIP_VOTES_REQUIRED } = require('../config/playlists');
+    
+    if (this.skipVotes.has(userId)) {
+      return { voted: false, totalVotes: this.skipVotes.size, required: SKIP_VOTES_REQUIRED, skipped: false };
+    }
+
+    this.skipVotes.add(userId);
+    const totalVotes = this.skipVotes.size;
+
+    if (totalVotes >= SKIP_VOTES_REQUIRED) {
+      this.skip();
+      return { voted: true, totalVotes, required: SKIP_VOTES_REQUIRED, skipped: true };
+    }
+
+    return { voted: true, totalVotes, required: SKIP_VOTES_REQUIRED, skipped: false };
+  }
+
+  getSkipVotes(): number {
+    return this.skipVotes.size;
+  }
+
   setLoop(enabled: boolean): void {
     this.isLooping = enabled;
   }
@@ -488,5 +578,34 @@ export class MusicPlayer {
     if (status === AudioPlayerStatus.Playing) return 'playing';
     if (status === AudioPlayerStatus.Paused) return 'paused';
     return 'idle';
+  }
+
+  /**
+   * Get current playback position in seconds
+   */
+  getPlaybackPosition(): number {
+    if (!this.trackStartTime || !this.isPlaying) return 0;
+    
+    const now = Date.now();
+    let elapsed = now - this.trackStartTime - this.totalPausedTime;
+    
+    // If currently paused, don't count time since pause
+    if (this.pausedAt > 0) {
+      elapsed = this.pausedAt - this.trackStartTime - this.totalPausedTime;
+    }
+    
+    return Math.floor(elapsed / 1000);
+  }
+
+  /**
+   * Remove a track from queue by trackId
+   */
+  removeFromQueue(trackId: string): boolean {
+    const idx = this.queue.findIndex(item => item.track.trackId === trackId);
+    if (idx !== -1) {
+      this.queue.splice(idx, 1);
+      return true;
+    }
+    return false;
   }
 }
