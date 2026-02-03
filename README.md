@@ -60,45 +60,55 @@ A fair turn-based system for selecting songs:
 
 ## Channels
 
-| Channel             | Purpose                                                    |
-| ------------------- | ---------------------------------------------------------- |
-| **Voice Channel**   | Single voice channel for music playback                    |
-| **Control Channel** | Selection Queue + Song dropdown + Vote Skip + View Queue   |
-| **Display Channel** | Now Playing embed with progress bar and queue preview      |
-| **Admin Logs**      | Logs for playlist changes, queue activity, playback events |
-| **Admin Playlist**  | Add/Remove songs panel                                     |
+แต่ละช่องมีหน้าที่ต่างกัน — ตั้งค่า Channel ID ใน `.env` ตามช่องที่สร้างใน Discord
+
+### ช่องสำหรับผู้ใช้ (User channels)
+
+| ช่อง (ตัวอย่างชื่อ)                   | ตัวแปรใน .env                              | ใช้ทำอะไร                                                                                               |
+| ------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `#phantom-melody-vote-skip`           | `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | **โหวตข้ามเพลง** — แสดงเฉพาะ embed + ปุ่ม Vote Skip (โหวตครบ 5 ค่อยข้าม)                                |
+| `#phantom-melody-music-player`        | `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | **เพลงที่กำลังเล่น + ดูคิว** — แสดง Now Playing (ชื่อเพลง, progress bar, คิวถัดไป) และปุ่ม View Queue   |
+| `#phantom-melody-playlist`            | `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | **รายชื่อเพลงทั้งหมด** — embed หลายหน้า หน้าละ 8 เพลง พร้อมปุ่ม Previous / Next                         |
+| `#phantom-melody-song-selection`      | `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | **เข้าคิวเลือกเพลง** — Join Queue → ได้เทิร์นแล้วกด Select Song (เห็นเฉพาะตัวเอง), คนละ 1 เพลงต่อเทิร์น |
+| `#phantom-melody-manual`              | `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | **คู่มือการใช้งาน** — บอทโพสต์ embed บอกแนวทางและลิงก์ไปแต่ละช่อง (กดแล้วกระโดดไปช่องนั้น)              |
+| Voice channel (เช่น `phantom-melody`) | `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | **ห้องเสียง** — เล่นเพลงและบังคับให้ผู้ฟังอยู่ห้องนี้เท่านั้น                                           |
+
+### ช่องสำหรับแอดมิน (Admin channels)
+
+| ช่อง (ตัวอย่างชื่อ)              | ตัวแปรใน .env               | ใช้ทำอะไร                                                                    |
+| -------------------------------- | --------------------------- | ---------------------------------------------------------------------------- |
+| `#admin-phantom-melody-logs`     | `ADMIN_LOGS_CHANNEL_ID`     | **Log** — แสดงเหตุการณ์เพิ่มเพลงลงคิว, เล่น, ข้าม, ลบแทร็ก ฯลฯ               |
+| `#admin-phantom-melody-playlist` | `ADMIN_PLAYLIST_CHANNEL_ID` | **จัดการเพลย์ลิสต์** — ปุ่ม View & Remove สำหรับดู/ลบแทร็กในเพลย์ลิสต์       |
+| `#admin-phantom-melody-control`  | `ADMIN_CONTROL_CHANNEL_ID`  | **ควบคุมฉุกเฉิน/ทดสอบ** — ปุ่ม Force Skip, Pause, Resume (ใช้ได้เฉพาะแอดมิน) |
+
+### ช่องอื่น (ไม่บังคับ)
+
+| ช่อง                   | หมายเหตุ                                                               |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `#phantom-melody-chat` | ช่องแชททั่วไป ไม่มีตัวแปรใน .env — ใช้คุยหรือถามเรื่องบอทได้ตามต้องการ |
 
 ## User Interface
 
-### Control Channel
+### ช่อง Vote Skip (`#phantom-melody-vote-skip`)
 
-Contains three main components:
+- Embed "♫ Music Player Controls" + ปุ่ม **Vote Skip**
+- โหวตครบ 5 คน ถึงจะข้ามเพลงปัจจุบัน
 
-1. **Selection Queue Panel**
+### ช่อง Music Player (`#phantom-melody-music-player`)
 
-   - Shows who is currently selecting
-   - Countdown timer (2 minutes)
-   - List of users waiting in queue
-   - Join Queue / Leave buttons
+- **Now Playing** — ชื่อเพลง, artist, progress bar, เวลา, ผู้ขอ, คิวถัดไป (ประมาณ 5 เพลง)
+- ปุ่ม **View Queue** — กดแล้วแสดงคิวทั้งหมด (ข้อความเห็นเฉพาะคนกด)
 
-2. **Music Controls**
+### ช่อง Song Selection (`#phantom-melody-song-selection`)
 
-   - ⏭️ **Vote Skip** - Vote to skip current song (needs 5 votes)
-   - 📋 **View Queue** - View the current music queue
+1. **Embed รายการเพลง** — จำนวนแทร็ก + ข้อความให้ Join queue แล้วกด Select Song
+2. **Song Selection Queue** — ใครกำลังเลือก, เวลาคงเหลือ, รายชื่อคนรอ, ปุ่ม Join Queue / Leave / Select Song
+3. เมื่อถึงเทิร์น จะได้ข้อความแบบเห็นเฉพาะตัวเอง (ephemeral) พร้อม dropdown เลือกเพลง
 
-3. **Song Selection Dropdown**
-   - Select songs from the playlist to add to queue
-   - Only works when it's your turn in the selection queue
+### ช่อง Playlist (`#phantom-melody-playlist`)
 
-### Display Channel
-
-Shows a beautiful Now Playing embed:
-
-- Current track title and artist
-- Thumbnail image
-- Progress bar with time
-- Requested by username
-- Next 5 songs in queue
+- Embed รายชื่อเพลงหลายหน้า (8 เพลงต่อหน้า)
+- ปุ่ม **Previous** / **Next** สำหรับเลื่อนหน้า
 
 ## YouTube Playback
 
@@ -227,22 +237,25 @@ If you change display text (e.g. placeholders, messages) or add new buttons, **r
 
 ## Environment Variables
 
-| Variable                            | Description                                                    |
-| ----------------------------------- | -------------------------------------------------------------- |
-| `DISCORD_TOKEN`                     | Phantom Melody bot token                                       |
-| `CLIENT_ID`                         | Discord application client ID                                  |
-| `GUILD_ID`                          | Server (guild) ID for command deployment                       |
-| `MONGO_URI`                         | MongoDB connection string                                      |
-| **User Channels**                   |                                                                |
-| `PHANTOM_MELODY_VOICE_CHANNEL_ID`   | Voice channel for music playback                               |
-| `PHANTOM_MELODY_CONTROL_CHANNEL_ID` | Channel for controls, selection queue, and song dropdown       |
-| `PHANTOM_MELODY_DISPLAY_CHANNEL_ID` | Channel for Now Playing display                                |
-| **Admin Channels**                  |                                                                |
-| `ADMIN_LOGS_CHANNEL_ID`             | Admin logs - playlist changes, queue, playback events          |
-| `ADMIN_PLAYLIST_CHANNEL_ID`         | Admin panel for Add/Remove songs                               |
-| `ADMIN_CONTROL_CHANNEL_ID`          | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
-| **Legacy**                          |                                                                |
-| `PHANTOM_MELODY_TEXT_CHANNEL_ID`    | Fallback text channel                                          |
+| Variable                                   | Description                                                    |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `DISCORD_TOKEN`                            | Phantom Melody bot token                                       |
+| `CLIENT_ID`                                | Discord application client ID                                  |
+| `GUILD_ID`                                 | Server (guild) ID for command deployment                       |
+| `MONGO_URI`                                | MongoDB connection string                                      |
+| **User Channels**                          |                                                                |
+| `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | Voice channel for music playback                               |
+| `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | Vote Skip only (embed + Vote Skip button)                      |
+| `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | Now Playing display + View Queue button                        |
+| `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | Full playlist (multi-page embed, Prev/Next)                    |
+| `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (one song per turn)                   |
+| `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)             |
+| **Admin Channels**                         |                                                                |
+| `ADMIN_LOGS_CHANNEL_ID`                    | Admin logs - playlist changes, queue, playback events          |
+| `ADMIN_PLAYLIST_CHANNEL_ID`                | Admin panel for Add/Remove songs                               |
+| `ADMIN_CONTROL_CHANNEL_ID`                 | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
+| **Legacy**                                 |                                                                |
+| `PHANTOM_MELODY_TEXT_CHANNEL_ID`           | Fallback text channel                                          |
 
 ## Admin: Adding Songs
 

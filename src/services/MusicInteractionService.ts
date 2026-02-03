@@ -48,140 +48,180 @@ export class MusicInteractionService {
   private async setupAllButtons(client: Client): Promise<void> {
     console.log('[MusicInteractionService] Setting up all persistent buttons...');
 
-    const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const voteSkipChannelId = process.env.PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const songSelectionChannelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const musicPlayerChannelId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID;
+    const playlistChannelId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const manualChannelId = process.env.PHANTOM_MELODY_MANUAL_CHANNEL_ID;
     const playlistControlAdminId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     const adminControlChannelId = process.env.ADMIN_CONTROL_CHANNEL_ID;
 
-    if (!controlChannelId) {
-      console.warn('[MusicInteractionService] Channel IDs not set, skipping button setup.');
-      return;
+    if (voteSkipChannelId) {
+      await this.ensureVoteSkipMessage(client, voteSkipChannelId);
     }
-
-    // Setup simplified Music Control buttons (Skip vote + View Queue + Song selection)
-    await this.ensureMusicControlButtons(client, controlChannelId);
-
-    // Setup song selection from playlist (for users to pick songs)
-    await this.ensureSongSelectionMessage(client, controlChannelId);
-
-    // Setup Playlist Control Admin channel (admin-only add songs)
+    if (songSelectionChannelId) {
+      await this.ensureSongSelectionMessage(client, songSelectionChannelId);
+    }
+    if (musicPlayerChannelId) {
+      await this.ensureMusicPlayerMessage(client, musicPlayerChannelId);
+    }
+    if (playlistChannelId) {
+      await this.ensurePlaylistDisplayMessage(client, playlistChannelId);
+    }
+    if (manualChannelId) {
+      await this.ensureManualMessage(client, manualChannelId);
+    }
     if (playlistControlAdminId) {
       await this.ensureAdminPlaylistControl(client, playlistControlAdminId);
     }
-
-    // Admin-only control channel (Force Skip / Pause / Resume for emergency or testing)
     if (adminControlChannelId) {
       await this.ensureAdminControlButtons(client, adminControlChannelId);
     }
   }
 
   /**
-   * Setup simplified Music Control buttons (Skip vote + View Queue)
+   * PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID — Vote Skip only (embed + Vote Skip button)
    */
-  private async ensureMusicControlButtons(client: Client, channelId: string): Promise<void> {
+  private async ensureVoteSkipMessage(client: Client, channelId: string): Promise<void> {
     try {
       const channel = await client.channels.fetch(channelId);
       if (!channel || !channel.isTextBased()) {
-        console.error(`[MusicInteractionService] ❌ Channel ${channelId} not found or not text-based.`);
+        console.error(`[MusicInteractionService] ❌ Vote Skip channel ${channelId} not found.`);
         return;
       }
-
       const textChannel = channel as TextChannel;
-
-      // Check permissions
       const botMember = await textChannel.guild.members.fetch(client.user!.id);
       const permissions = textChannel.permissionsFor(botMember);
-
-      if (!permissions || !permissions.has('SendMessages') || !permissions.has('ViewChannel')) {
-        console.error(`[MusicInteractionService] ❌ Bot lacks required permissions in music control channel ${channelId}.`);
+      if (!permissions?.has('SendMessages') || !permissions?.has('ViewChannel')) {
+        console.error(`[MusicInteractionService] ❌ Bot lacks permissions in vote skip channel ${channelId}.`);
         return;
       }
 
-      // Create the embed
       const embed = new EmbedBuilder()
         .setColor(0x9B59B6)
-        .setTitle('🎵 Music Player Controls')
+        .setTitle('♫ Music Player Controls')
         .setDescription(
           '**Control the music player with the buttons below**\n\n' +
-          `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)\n` +
-          '• **View Queue** — View current queue\n\n' +
-          '💡 Select songs from the menu below to add to queue!'
+          `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)`
         )
-        .setFooter({
-          text: `🗡️ Phantom Blade Zero Melody • Queue limit: ${MAX_QUEUE_SIZE} songs`,
-        })
+        .setFooter({ text: `Phantom Blade Zero Melody • Queue limit: ${MAX_QUEUE_SIZE} songs` })
         .setTimestamp();
 
-      // Create buttons - only Skip (vote) and View Queue
       const skipButton = new ButtonBuilder()
         .setCustomId('music_vote_skip')
         .setLabel('Vote Skip')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('⏭️');
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(skipButton);
 
+      const storageKey = `${channelId}_vote_skip`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
+        try {
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
+        } catch {
+          this.buttonMessageIds.delete(storageKey);
+        }
+      }
+      if (!message) {
+        const messages = await textChannel.messages.fetch({ limit: 30 });
+        for (const [id, msg] of messages) {
+          if (msg.author.id === client.user!.id && msg.components.some((r: any) => r.components.some((c: any) => c.customId === 'music_vote_skip'))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, id);
+            break;
+          }
+        }
+      }
+      if (message) {
+        await message.edit({ embeds: [embed], components: [row] }).catch(() => {
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        });
+      }
+      if (!message) {
+        const newMsg = await textChannel.send({ embeds: [embed], components: [row] });
+        this.buttonMessageIds.set(storageKey, newMsg.id);
+      }
+
+      // Remove song-selection messages from this channel (they belong in SONG_SELECTION_CHANNEL_ID only)
+      const voteSkipMessageId = this.buttonMessageIds.get(storageKey);
+      const allInChannel = await textChannel.messages.fetch({ limit: 20 });
+      for (const [, msg] of allInChannel) {
+        if (msg.author.id !== client.user!.id || msg.id === voteSkipMessageId) continue;
+        const title = msg.embeds[0]?.title ?? '';
+        const isPlaylistInfo = title.includes('Phantom Blade Zero') && !title.includes('— Playlist') && !title.includes('♫');
+        const isSelectionQueue = title.includes('Song Selection Queue');
+        if (isPlaylistInfo || isSelectionQueue) {
+          await msg.delete().catch(() => {});
+        }
+      }
+      console.log(`[MusicInteractionService] ✓ Vote Skip message updated`);
+    } catch (error) {
+      console.error(`[MusicInteractionService] ❌ Error setting up vote skip:`, error);
+    }
+  }
+
+  /**
+   * PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID — View Queue button (Now Playing is shown by NowPlayingDisplayService)
+   */
+  private async ensureMusicPlayerMessage(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) return;
+      const textChannel = channel as TextChannel;
+      const botMember = await textChannel.guild.members.fetch(client.user!.id);
+      if (!textChannel.permissionsFor(botMember)?.has('SendMessages')) return;
+
+      const embed = new EmbedBuilder()
+        .setColor(0x9B59B6)
+        .setTitle('📋 View Queue')
+        .setDescription('Click the button below to view the current queue.')
+        .setFooter({ text: 'Phantom Blade Zero Melody' })
+        .setTimestamp();
       const queueButton = new ButtonBuilder()
         .setCustomId('music_queue')
         .setLabel('View Queue')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('📋');
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(queueButton);
 
-      const row1 = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(skipButton, queueButton);
-
-      // Try to find existing button message
-      let buttonMessage: Message | null = null;
-      const storedMessageId = this.buttonMessageIds.get(`${channelId}_controls`);
-
-      if (storedMessageId) {
+      const storageKey = `${channelId}_music_player`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
         try {
-          const storedMessage = await textChannel.messages.fetch(storedMessageId);
-          if (storedMessage) {
-            buttonMessage = storedMessage;
-          }
-        } catch (error) {
-          this.buttonMessageIds.delete(`${channelId}_controls`);
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
+        } catch {
+          this.buttonMessageIds.delete(storageKey);
         }
       }
-
-      if (!buttonMessage) {
-        const messages = await textChannel.messages.fetch({ limit: 50 });
+      if (!message) {
+        const messages = await textChannel.messages.fetch({ limit: 30 });
         for (const [id, msg] of messages) {
-          if (msg.author.id === client.user!.id) {
-            const hasButton = msg.components.some((row: any) =>
-              row.components.some((component: any) =>
-                component.type === 2 && (component.customId === 'music_vote_skip' || component.customId === 'music_playpause')
-              )
-            );
-            if (hasButton) {
-              buttonMessage = msg;
-              this.buttonMessageIds.set(`${channelId}_controls`, id);
-              break;
-            }
+          if (msg.author.id === client.user!.id && msg.components.some((r: any) => r.components.some((c: any) => c.customId === 'music_queue'))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, id);
+            break;
           }
         }
       }
-
-      if (buttonMessage) {
-        try {
-          await buttonMessage.edit({ embeds: [embed], components: [row1] });
-          console.log(`[MusicInteractionService] ✓ Music control button message updated successfully`);
-        } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error editing music control button message:`, error);
-          this.buttonMessageIds.delete(`${channelId}_controls`);
-          buttonMessage = null;
-        }
+      if (message) {
+        await message.edit({ embeds: [embed], components: [row] }).catch(() => {
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        });
       }
-
-      if (!buttonMessage) {
-        try {
-          const newMessage = await textChannel.send({ embeds: [embed], components: [row1] });
-          this.buttonMessageIds.set(`${channelId}_controls`, newMessage.id);
-          console.log(`[MusicInteractionService] ✓ Music control button message sent successfully`);
-        } catch (error) {
-          console.error(`[MusicInteractionService] ❌ Error sending music control button message:`, error);
-        }
+      if (!message) {
+        const newMsg = await textChannel.send({ embeds: [embed], components: [row] });
+        this.buttonMessageIds.set(storageKey, newMsg.id);
       }
+      console.log(`[MusicInteractionService] ✓ Music Player (View Queue) message updated`);
     } catch (error) {
-      console.error(`[MusicInteractionService] ❌ Critical error setting up music control buttons:`, error);
+      console.error(`[MusicInteractionService] ❌ Error setting up music player message:`, error);
     }
   }
 
@@ -209,7 +249,7 @@ export class MusicInteractionService {
           `${MAIN_PLAYLIST.description}\n\n` +
           `**${trackCount}** tracks in playlist\n\n` +
           (hasTracks
-            ? '📋 Select songs from the menu below to add to queue\n' + `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks`
+            ? '📋 **Join the queue** below to get your turn — then use **Select Song** to choose a track (message visible only to you).\n' + `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks • One song per turn`
             : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
         )
         .setFooter({
@@ -217,31 +257,10 @@ export class MusicInteractionService {
         })
         .setTimestamp();
 
-      // Discord จำกัด 25 ตัวเลือกต่อเมนู — แบ่งเป็นหลายเมนู (สูงสุด 5 แถว = 125 เพลง)
+      // No dropdowns here — song selection is ephemeral (only when it's your turn, via "Select Song" button)
       const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-      const OPTIONS_PER_MENU = 25;
-      const MAX_MENUS = 5;
 
-      if (hasTracks) {
-        for (let i = 0; i < Math.min(MAX_MENUS, Math.ceil(tracks.length / OPTIONS_PER_MENU)); i++) {
-          const chunk = tracks.slice(i * OPTIONS_PER_MENU, (i + 1) * OPTIONS_PER_MENU);
-          const options = chunk.map((track: any) =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel((track.title || track.trackId).slice(0, 100))
-              .setDescription((track.artist || 'PBZ Music').slice(0, 100))
-              .setValue(track.trackId)
-          );
-          const start = i * OPTIONS_PER_MENU + 1;
-          const end = Math.min((i + 1) * OPTIONS_PER_MENU, tracks.length);
-          const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId(`song_select_${i}`)
-            .setPlaceholder(`Songs ${start}–${end} — Select to add to queue...`)
-            .addOptions(options);
-          components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
-        }
-      }
-
-      // Try to find existing message
+      // Try to find existing message (look for our embed title, no select menu now)
       let buttonMessage: Message | null = null;
       const storedMessageId = this.buttonMessageIds.get(`${channelId}_songs`);
 
@@ -259,13 +278,9 @@ export class MusicInteractionService {
       if (!buttonMessage) {
         const messages = await textChannel.messages.fetch({ limit: 50 });
         for (const [id, msg] of messages) {
-          if (msg.author.id === client.user!.id) {
-            const hasSelectMenu = msg.components.some((row: any) =>
-              row.components.some((component: any) =>
-                component.type === 3 && (component.customId === 'song_select' || (component.customId && component.customId.startsWith('song_select_')))
-              )
-            );
-            if (hasSelectMenu) {
+          if (msg.author.id === client.user!.id && msg.embeds.length > 0) {
+            const hasPlaylistEmbed = msg.embeds.some((emb: any) => emb.title?.includes(MAIN_PLAYLIST.name));
+            if (hasPlaylistEmbed) {
               buttonMessage = msg;
               this.buttonMessageIds.set(`${channelId}_songs`, id);
               break;
@@ -276,8 +291,8 @@ export class MusicInteractionService {
 
       if (buttonMessage) {
         try {
-          await buttonMessage.edit({ embeds: [embed], components });
-          console.log(`[MusicInteractionService] ✓ Song selection message updated successfully`);
+          await buttonMessage.edit({ embeds: [embed], components: [] });
+          console.log(`[MusicInteractionService] ✓ Song selection message updated (no dropdowns in channel)`);
         } catch (error) {
           console.error(`[MusicInteractionService] ❌ Error editing song selection message:`, error);
           this.buttonMessageIds.delete(`${channelId}_songs`);
@@ -287,9 +302,9 @@ export class MusicInteractionService {
 
       if (!buttonMessage) {
         try {
-          const newMessage = await textChannel.send({ embeds: [embed], components });
+          const newMessage = await textChannel.send({ embeds: [embed], components: [] });
           this.buttonMessageIds.set(`${channelId}_songs`, newMessage.id);
-          console.log(`[MusicInteractionService] ✓ Song selection message sent successfully`);
+          console.log(`[MusicInteractionService] ✓ Song selection message sent`);
         } catch (error) {
           console.error(`[MusicInteractionService] ❌ Error sending song selection message:`, error);
         }
@@ -472,18 +487,187 @@ export class MusicInteractionService {
     }
   }
 
+  /** Tracks per page in display channel playlist embed */
+  public static readonly PLAYLIST_PAGE_SIZE = 8;
+
+  /**
+   * Build playlist page embed and Prev/Next buttons (for display channel or button update).
+   * Used by ensurePlaylistDisplayMessage and by interactionCreate handlePlaylistPage.
+   */
+  public static buildPlaylistPageEmbed(
+    tracks: any[],
+    page: number
+  ): { embed: EmbedBuilder; components: ActionRowBuilder<ButtonBuilder>[] } {
+    const totalPages = Math.max(1, Math.ceil(tracks.length / MusicInteractionService.PLAYLIST_PAGE_SIZE));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const start = safePage * MusicInteractionService.PLAYLIST_PAGE_SIZE;
+    const chunk = tracks.slice(start, start + MusicInteractionService.PLAYLIST_PAGE_SIZE);
+
+    const listLines = chunk.map(
+      (t: any, i: number) => `${start + i + 1}. **${(t.title || t.trackId).slice(0, 80)}**${t.artist ? ` — ${(t.artist as string).slice(0, 40)}` : ''}`
+    );
+    const description =
+      listLines.length > 0
+        ? listLines.join('\n')
+        : '*No tracks*';
+    const embed = new EmbedBuilder()
+      .setColor(0x9B59B6)
+      .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name} — Playlist`)
+      .setDescription(description.slice(0, 4096))
+      .setFooter({ text: `Page ${safePage + 1} / ${totalPages} • ${tracks.length} tracks total` })
+      .setTimestamp();
+
+    const prevBtn = new ButtonBuilder()
+      .setCustomId(`playlist_prev_${safePage}`)
+      .setLabel('Previous')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('◀')
+      .setDisabled(safePage === 0);
+    const nextBtn = new ButtonBuilder()
+      .setCustomId(`playlist_next_${safePage}`)
+      .setLabel('Next')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('▶')
+      .setDisabled(safePage >= totalPages - 1);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn);
+    return { embed, components: [row] };
+  }
+
+  /**
+   * PHANTOM_MELODY_PLAYLIST_CHANNEL_ID — multi-page playlist embed only (8 tracks per page, Prev/Next).
+   */
+  private async ensurePlaylistDisplayMessage(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        console.error(`[MusicInteractionService] ❌ Playlist channel ${channelId} not found.`);
+        return;
+      }
+      const textChannel = channel as TextChannel;
+      const tracks = await this.queueManager.getAllTracks();
+      const { embed, components } = MusicInteractionService.buildPlaylistPageEmbed(tracks, 0);
+
+      const storageKey = `${channelId}_playlist_display`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
+        try {
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
+        } catch {
+          this.buttonMessageIds.delete(storageKey);
+        }
+      }
+      if (!message) {
+        const messages = await textChannel.messages.fetch({ limit: 30 });
+        for (const [, msg] of messages) {
+          if (msg.author.id === client.user!.id && msg.components.some((r: any) => r.components.some((c: any) => c.customId?.startsWith?.('playlist_prev_')))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, msg.id);
+            break;
+          }
+        }
+      }
+      if (message) {
+        await message.edit({ embeds: [embed], components }).catch(() => {
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        });
+      }
+      if (!message) {
+        const newMessage = await textChannel.send({ embeds: [embed], components });
+        this.buttonMessageIds.set(storageKey, newMessage.id);
+      }
+      console.log(`[MusicInteractionService] ✓ Playlist display message updated`);
+    } catch (error) {
+      console.error(`[MusicInteractionService] ❌ Error setting up playlist display:`, error);
+    }
+  }
+
+  /**
+   * PHANTOM_MELODY_MANUAL_CHANNEL_ID — guide message with clickable channel links (<#id>).
+   */
+  private async ensureManualMessage(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) return;
+      const textChannel = channel as TextChannel;
+      const botMember = await textChannel.guild.members.fetch(client.user!.id);
+      if (!textChannel.permissionsFor(botMember)?.has('SendMessages')) return;
+
+      const voteSkipId = process.env.PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID || '';
+      const musicPlayerId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID || '';
+      const playlistId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || '';
+      const songSelectionId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || '';
+
+      const lines: string[] = [
+        '**How to use Phantom Melody**',
+        '',
+        voteSkipId ? `• **Vote to skip** — Go to <#${voteSkipId}> and use the Vote Skip button.` : '',
+        musicPlayerId ? `• **Now playing & queue** — See the current track and upcoming queue in <#${musicPlayerId}>.` : '',
+        playlistId ? `• **Full playlist** — Browse all tracks (multi-page) in <#${playlistId}>.` : '',
+        songSelectionId ? `• **Add songs to queue** — Go to <#${songSelectionId}>, click **Join Queue**, then **Select Song** when it's your turn (one song per turn).` : '',
+      ].filter(Boolean);
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('📖 Phantom Melody — Guide')
+        .setDescription(lines.join('\n').slice(0, 4096) || '*Set channel IDs in .env to show links.*')
+        .setFooter({ text: 'Phantom Blade Zero Melody' })
+        .setTimestamp();
+
+      const storageKey = `${channelId}_manual`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
+        try {
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
+        } catch {
+          this.buttonMessageIds.delete(storageKey);
+        }
+      }
+      if (!message) {
+        const messages = await textChannel.messages.fetch({ limit: 20 });
+        for (const [id, msg] of messages) {
+          if (msg.author.id === client.user!.id && msg.embeds.some((e: any) => e.title?.includes('Guide'))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, id);
+            break;
+          }
+        }
+      }
+      if (message) {
+        await message.edit({ embeds: [embed] }).catch(() => {
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        });
+      }
+      if (!message) {
+        const newMsg = await textChannel.send({ embeds: [embed] });
+        this.buttonMessageIds.set(storageKey, newMsg.id);
+      }
+      console.log(`[MusicInteractionService] ✓ Manual message updated`);
+    } catch (error) {
+      console.error(`[MusicInteractionService] ❌ Error setting up manual:`, error);
+    }
+  }
+
   /**
    * Refresh the song selection menu (call after adding/removing tracks)
    */
   public async refreshSongSelection(): Promise<void> {
-    const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    if (controlChannelId && this.client) {
-      await this.ensureSongSelectionMessage(this.client, controlChannelId);
+    const songSelectionChannelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    if (songSelectionChannelId && this.client) {
+      await this.ensureSongSelectionMessage(this.client, songSelectionChannelId);
     }
-
     const adminChannelId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     if (adminChannelId && this.client) {
       await this.ensureAdminPlaylistControl(this.client, adminChannelId);
+    }
+    const playlistChannelId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    if (playlistChannelId && this.client) {
+      await this.ensurePlaylistDisplayMessage(this.client, playlistChannelId);
     }
   }
 

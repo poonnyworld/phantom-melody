@@ -45,6 +45,11 @@ export class NowPlayingDisplayService {
     this.displayMessageId = null;
   }
 
+  /** Clear stored message ID so next updateDisplay() will create a new message (e.g. after reorder). */
+  public clearStoredMessageId(): void {
+    this.displayMessageId = null;
+  }
+
   /**
    * Start the periodic update loop
    */
@@ -72,7 +77,7 @@ export class NowPlayingDisplayService {
    * Ensure the display message exists and is updated
    */
   private async ensureDisplayMessage(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_DISPLAY_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;

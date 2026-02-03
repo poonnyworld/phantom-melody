@@ -131,6 +131,18 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     await handleSelectionLeaveQueue(interaction);
     return;
   }
+
+  // Selection Queue: Select Song (shows ephemeral dropdown when it's your turn)
+  if (customId === 'selection_choose_song') {
+    await handleSelectionChooseSong(interaction);
+    return;
+  }
+
+  // Playlist display: Previous/Next page
+  if (customId.startsWith('playlist_prev_') || customId.startsWith('playlist_next_')) {
+    await handlePlaylistPage(interaction);
+    return;
+  }
 }
 
 /**
@@ -636,6 +648,32 @@ async function handleAdminResume(interaction: ButtonInteraction): Promise<void> 
 // SELECTION QUEUE HANDLERS
 // ============================================
 
+const SONG_SELECT_OPTIONS_PER_MENU = 25;
+const SONG_SELECT_MAX_MENUS = 5;
+
+/** Build song select dropdown rows for ephemeral message (when it's your turn). */
+function buildSongSelectComponents(tracks: any[]): ActionRowBuilder<StringSelectMenuBuilder>[] {
+  const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+  const menuCount = Math.min(SONG_SELECT_MAX_MENUS, Math.ceil(tracks.length / SONG_SELECT_OPTIONS_PER_MENU));
+  for (let i = 0; i < menuCount; i++) {
+    const chunk = tracks.slice(i * SONG_SELECT_OPTIONS_PER_MENU, (i + 1) * SONG_SELECT_OPTIONS_PER_MENU);
+    const options = chunk.map((track: any) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel((track.title || track.trackId).slice(0, 100))
+        .setDescription((track.artist || 'PBZ Music').slice(0, 100))
+        .setValue(track.trackId)
+    );
+    const start = i * SONG_SELECT_OPTIONS_PER_MENU + 1;
+    const end = Math.min((i + 1) * SONG_SELECT_OPTIONS_PER_MENU, tracks.length);
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`song_select_${i}`)
+      .setPlaceholder(`Songs ${start}–${end} — Select to add to queue...`)
+      .addOptions(options);
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+  }
+  return rows;
+}
+
 /**
  * Handle joining the selection queue
  */
@@ -646,11 +684,53 @@ async function handleSelectionJoinQueue(interaction: ButtonInteraction): Promise
   const { selectionQueueService } = await import('../services/SelectionQueueService');
   const result = selectionQueueService.joinQueue(interaction.user.id, interaction.user.username);
 
+  // When it's their turn (position === 0), show ephemeral message with song selection dropdowns
+  if (result.success && result.position === 0) {
+    const tracks = await client.queueManager.getAllTracks();
+    const components = buildSongSelectComponents(tracks);
+    await interaction.reply({
+      content: `✅ ${result.message}\n\n**Select a song below** (only you can see this):`,
+      ephemeral: true,
+      components: components.length > 0 ? components : undefined,
+    });
+    return;
+  }
+
   await interaction.reply({
-    content: result.success
-      ? `✅ ${result.message}`
-      : `ℹ️ ${result.message}`,
+    content: result.success ? `✅ ${result.message}` : `ℹ️ ${result.message}`,
     ephemeral: true,
+  });
+}
+
+/**
+ * Handle "Select Song" button — show ephemeral dropdowns only when it's your turn
+ */
+async function handleSelectionChooseSong(interaction: ButtonInteraction): Promise<void> {
+  const { selectionQueueService } = await import('../services/SelectionQueueService');
+  const canSelectResult = selectionQueueService.canSelect(interaction.user.id);
+
+  if (!canSelectResult.canSelect) {
+    await interaction.reply({
+      content: `⏳ ${canSelectResult.message}\n\nClick **Join Queue** first to get your turn.`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const tracks = await client.queueManager.getAllTracks();
+  if (tracks.length === 0) {
+    await interaction.reply({
+      content: 'No tracks in playlist yet.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const components = buildSongSelectComponents(tracks);
+  await interaction.reply({
+    content: '**Select a song below** (only you can see this):',
+    ephemeral: true,
+    components,
   });
 }
 
@@ -667,6 +747,26 @@ async function handleSelectionLeaveQueue(interaction: ButtonInteraction): Promis
       : `ℹ️ ${result.message}`,
     ephemeral: true,
   });
+}
+
+/**
+ * Handle playlist display Prev/Next (multi-page embed in display channel)
+ */
+async function handlePlaylistPage(interaction: ButtonInteraction): Promise<void> {
+  const customId = interaction.customId;
+  let page = 0;
+  if (customId.startsWith('playlist_prev_')) {
+    page = parseInt(customId.replace('playlist_prev_', ''), 10) - 1;
+  } else if (customId.startsWith('playlist_next_')) {
+    page = parseInt(customId.replace('playlist_next_', ''), 10) + 1;
+  }
+  page = Math.max(0, page);
+
+  const tracks = await client.queueManager.getAllTracks();
+  const { MusicInteractionService } = await import('../services/MusicInteractionService');
+  const { embed, components } = MusicInteractionService.buildPlaylistPageEmbed(tracks, page);
+
+  await interaction.update({ embeds: [embed], components });
 }
 
 // ============================================

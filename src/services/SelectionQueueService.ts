@@ -255,7 +255,7 @@ class SelectionQueueService {
    * Update the display message
    */
   public async updateDisplay(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;
@@ -381,7 +381,13 @@ class SelectionQueueService {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('📤');
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinBtn, leaveBtn);
+    const chooseBtn = new ButtonBuilder()
+      .setCustomId('selection_choose_song')
+      .setLabel('Select Song')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🎵');
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinBtn, leaveBtn, chooseBtn);
 
     return [row];
   }
