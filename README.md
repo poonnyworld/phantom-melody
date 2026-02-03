@@ -4,10 +4,10 @@ A Discord music bot for Phantom Blade Zero community. Features a turn-based song
 
 ## Screenshots
 
-### Control Channel
+### Playlist Channel
 
-![Control Channel](./docs/images/control-channel.png)
-_Music controls, song selection dropdown, and selection queue panel_
+![Playlist Channel](./docs/images/playlist.png)
+_Show available songs_
 
 ### Selection Queue
 
@@ -19,15 +19,25 @@ _Turn-based queue system for fair song selection_
 ![Now Playing](./docs/images/now-playing.png)
 _Beautiful display with progress bar and upcoming queue_
 
-### Admin Panel
+### Vote Skip
 
-![Admin Panel](./docs/images/admin-panel.png)
+![Vote Skip](./docs/images/vote-skip.png)
+_Vote skip song (require 5 person to skip)_
+
+### Admin Playlist Manager
+
+![Admin Playlist Manager](./docs/images/admin-playlist-manager.png)
 _Add and remove songs from playlist_
 
 ### Admin Logs
 
 ![Admin Logs](./docs/images/admin-logs.png)
 _Activity logs for playlist changes and playback events_
+
+### Admin Controls
+
+![Admin Controls](./docs/images/admin-controls.png)
+_Force Skip, Play and pause song by admin_
 
 ## Features
 
@@ -60,55 +70,55 @@ A fair turn-based system for selecting songs:
 
 ## Channels
 
-แต่ละช่องมีหน้าที่ต่างกัน — ตั้งค่า Channel ID ใน `.env` ตามช่องที่สร้างใน Discord
+Each channel has a specific role. Set the Channel IDs in `.env` to match the channels you create in Discord.
 
-### ช่องสำหรับผู้ใช้ (User channels)
+### User channels
 
-| ช่อง (ตัวอย่างชื่อ)                   | ตัวแปรใน .env                              | ใช้ทำอะไร                                                                                               |
-| ------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `#phantom-melody-vote-skip`           | `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | **โหวตข้ามเพลง** — แสดงเฉพาะ embed + ปุ่ม Vote Skip (โหวตครบ 5 ค่อยข้าม)                                |
-| `#phantom-melody-music-player`        | `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | **เพลงที่กำลังเล่น + ดูคิว** — แสดง Now Playing (ชื่อเพลง, progress bar, คิวถัดไป) และปุ่ม View Queue   |
-| `#phantom-melody-playlist`            | `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | **รายชื่อเพลงทั้งหมด** — embed หลายหน้า หน้าละ 8 เพลง พร้อมปุ่ม Previous / Next                         |
-| `#phantom-melody-song-selection`      | `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | **เข้าคิวเลือกเพลง** — Join Queue → ได้เทิร์นแล้วกด Select Song (เห็นเฉพาะตัวเอง), คนละ 1 เพลงต่อเทิร์น |
-| `#phantom-melody-manual`              | `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | **คู่มือการใช้งาน** — บอทโพสต์ embed บอกแนวทางและลิงก์ไปแต่ละช่อง (กดแล้วกระโดดไปช่องนั้น)              |
-| Voice channel (เช่น `phantom-melody`) | `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | **ห้องเสียง** — เล่นเพลงและบังคับให้ผู้ฟังอยู่ห้องนี้เท่านั้น                                           |
+| Channel (example name)                | Env variable                               | Purpose                                                                                            |
+| ------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `#phantom-melody-vote-skip`           | `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | **Vote Skip** — Embed + Vote Skip button only (skip when 5 votes are reached)                      |
+| `#phantom-melody-music-player`        | `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | **Now Playing + View Queue** — Now Playing (title, progress bar, upcoming queue) and View Queue    |
+| `#phantom-melody-playlist`            | `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | **Full playlist** — Multi-page embed (8 tracks per page) with Previous / Next buttons              |
+| `#phantom-melody-song-selection`      | `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → get your turn → Select Song (ephemeral), one song/turn |
+| `#phantom-melody-manual`              | `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)          |
+| Voice channel (e.g. `phantom-melody`) | `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                    |
 
-### ช่องสำหรับแอดมิน (Admin channels)
+### Admin channels
 
-| ช่อง (ตัวอย่างชื่อ)              | ตัวแปรใน .env               | ใช้ทำอะไร                                                                    |
-| -------------------------------- | --------------------------- | ---------------------------------------------------------------------------- |
-| `#admin-phantom-melody-logs`     | `ADMIN_LOGS_CHANNEL_ID`     | **Log** — แสดงเหตุการณ์เพิ่มเพลงลงคิว, เล่น, ข้าม, ลบแทร็ก ฯลฯ               |
-| `#admin-phantom-melody-playlist` | `ADMIN_PLAYLIST_CHANNEL_ID` | **จัดการเพลย์ลิสต์** — ปุ่ม View & Remove สำหรับดู/ลบแทร็กในเพลย์ลิสต์       |
-| `#admin-phantom-melody-control`  | `ADMIN_CONTROL_CHANNEL_ID`  | **ควบคุมฉุกเฉิน/ทดสอบ** — ปุ่ม Force Skip, Pause, Resume (ใช้ได้เฉพาะแอดมิน) |
+| Channel (example name)           | Env variable                | Purpose                                                             |
+| -------------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| `#admin-phantom-melody-logs`     | `ADMIN_LOGS_CHANNEL_ID`     | **Logs** — Queue additions, playback, skip, track removal, etc.     |
+| `#admin-phantom-melody-playlist` | `ADMIN_PLAYLIST_CHANNEL_ID` | **Manage playlist** — View & Remove buttons to view/remove tracks   |
+| `#admin-phantom-melody-control`  | `ADMIN_CONTROL_CHANNEL_ID`  | **Emergency/test control** — Force Skip, Pause, Resume (admin only) |
 
-### ช่องอื่น (ไม่บังคับ)
+### Optional channels
 
-| ช่อง                   | หมายเหตุ                                                               |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `#phantom-melody-chat` | ช่องแชททั่วไป ไม่มีตัวแปรใน .env — ใช้คุยหรือถามเรื่องบอทได้ตามต้องการ |
+| Channel                | Notes                                                                       |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `#phantom-melody-chat` | General chat; no env variable — use for discussion or bot-related questions |
 
 ## User Interface
 
-### ช่อง Vote Skip (`#phantom-melody-vote-skip`)
+### Vote Skip channel (`#phantom-melody-vote-skip`)
 
-- Embed "♫ Music Player Controls" + ปุ่ม **Vote Skip**
-- โหวตครบ 5 คน ถึงจะข้ามเพลงปัจจุบัน
+- Embed "♫ Music Player Controls" + **Vote Skip** button
+- Current song skips when 5 votes are reached
 
-### ช่อง Music Player (`#phantom-melody-music-player`)
+### Music Player channel (`#phantom-melody-music-player`)
 
-- **Now Playing** — ชื่อเพลง, artist, progress bar, เวลา, ผู้ขอ, คิวถัดไป (ประมาณ 5 เพลง)
-- ปุ่ม **View Queue** — กดแล้วแสดงคิวทั้งหมด (ข้อความเห็นเฉพาะคนกด)
+- **Now Playing** — Track title, artist, progress bar, time, requester, upcoming queue (~5 songs)
+- **View Queue** button — Shows full queue (ephemeral, visible only to the user who clicked)
 
-### ช่อง Song Selection (`#phantom-melody-song-selection`)
+### Song Selection channel (`#phantom-melody-song-selection`)
 
-1. **Embed รายการเพลง** — จำนวนแทร็ก + ข้อความให้ Join queue แล้วกด Select Song
-2. **Song Selection Queue** — ใครกำลังเลือก, เวลาคงเหลือ, รายชื่อคนรอ, ปุ่ม Join Queue / Leave / Select Song
-3. เมื่อถึงเทิร์น จะได้ข้อความแบบเห็นเฉพาะตัวเอง (ephemeral) พร้อม dropdown เลือกเพลง
+1. **Track list embed** — Track count + instructions to Join queue then click Select Song
+2. **Song Selection Queue** — Current selector, time remaining, waiting list, Join Queue / Leave / Select Song buttons
+3. When it's your turn, you get an ephemeral message with song selection dropdowns
 
-### ช่อง Playlist (`#phantom-melody-playlist`)
+### Playlist channel (`#phantom-melody-playlist`)
 
-- Embed รายชื่อเพลงหลายหน้า (8 เพลงต่อหน้า)
-- ปุ่ม **Previous** / **Next** สำหรับเลื่อนหน้า
+- Multi-page embed (8 tracks per page)
+- **Previous** / **Next** buttons to navigate pages
 
 ## YouTube Playback
 
@@ -195,19 +205,19 @@ npm start
    docker-compose logs -f phantom-melody
    ```
 
-#### BGM / PBZ playlist เมื่อรัน Docker
+#### BGM / PBZ playlist when running with Docker
 
-- ใส่ไฟล์ BGM `.wav` ในโฟลเดอร์ `./music/pbz/` บนโฮสต์ (โฟลเดอร์นี้ถูก mount เข้า container)
-- แก้ `config/pbz-bgm-tracks.js` ให้ตรงกับชื่อไฟล์ แล้วรัน seed **บนโฮสต์** (Mongo อยู่ในการ์ดของ Docker):
+- Place BGM `.wav` files in `./music/pbz/` on the host (this folder is mounted into the container)
+- Update `config/pbz-bgm-tracks.js` to match your filenames, then run the seed **on the host** (Mongo runs in Docker):
 
   ```bash
-  # บนโฮสต์ (จาก phantom-melody/)
-  MONGO_URI=mongodb://localhost:27017/honorbot npm run seed-pbz-bgm
+  # On host (from phantom-melody/)
+  MONGO_URI=mongodb://localhost:27017/honorbot npm run sync-pbz:host
   ```
 
-  ถ้า Mongo อยู่คนละเครื่อง/port ให้ใช้ค่า MONGO_URI ให้ตรงกับที่ container ใช้ (เช่น `mongodb://mongodb:27017/honorbot` ใช้ได้เฉพาะจากภายใน Docker network)
+  If MongoDB is on a different host/port, set `MONGO_URI` accordingly (e.g. `mongodb://mongodb:27017/honorbot` only works from inside the Docker network)
 
-- ลบเพลย์ลิสต์เก่าเหลือแค่ PBZ: `node init-playlists.js` (รันบนโฮสต์ พร้อม MONGO_URI เดียวกัน)
+- To keep only the PBZ playlist: run `node init-playlists.js` on the host with the same `MONGO_URI`
 
 #### Docker Commands
 
