@@ -49,7 +49,7 @@ export async function execute(interaction: Interaction) {
 async function checkVoiceChannel(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<VoiceChannel | null> {
   const member = interaction.member as GuildMember;
   const voiceChannel = member.voice.channel;
-  const requiredChannelId = process.env.PHANTOM_MELODY_VOICE_CHANNEL_ID;
+  const requiredChannelId = process.env.PHANTOM_RADIO_VOICE_CHANNEL_ID;
 
   if (!voiceChannel) {
     await interaction.reply({

@@ -1,5 +1,5 @@
 {
-  "name": "phantom-melody",
+  "name": "phantom-radio",
   "version": "1.0.0",
   "description": "Discord.js music bot with Honor Points integration",
   "main": "dist/index.js",

@@ -9,7 +9,7 @@ export interface PlaylistConfig {
 
 // Single playlist configuration for Phantom Blade Zero
 export const MAIN_PLAYLIST: PlaylistConfig = {
-  name: 'Phantom Blade Zero Melody',
+  name: 'Phantom Blade Zero Radio',
   category: 'pbz', // Single category for all tracks
   description: 'Official soundtrack from Phantom Blade Zero',
   emoji: '🗡️',

@@ -1,7 +1,7 @@
 services:
-  phantom-melody:
+  phantom-radio:
     build: .
-    container_name: phantom-melody-bot
+    container_name: phantom-radio-bot
     restart: unless-stopped
     environment:
       - NODE_ENV=production

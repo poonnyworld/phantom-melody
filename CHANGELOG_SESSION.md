@@ -1,4 +1,4 @@
-# สรุปการเปลี่ยนแปลง (Phantom Melody)
+# สรุปการเปลี่ยนแปลง (Phantom Radio)
 
 ## PBZ BGM และเพลย์ลิสต์
 
@@ -11,7 +11,7 @@
 
 ## การแสดงผลและ UX
 
-- **QueueManager.getAllTracks()** — ดึงแทร็กจากเพลย์ลิสต์ "Phantom Blade Zero Melody" (รวม local WAV) แทนการดึงเฉพาะ YouTube
+- **QueueManager.getAllTracks()** — ดึงแทร็กจากเพลย์ลิสต์ "Phantom Blade Zero Radio" (รวม local WAV) แทนการดึงเฉพาะ YouTube
 - **Dropdown แสดงครบทุกเพลง** — Discord จำกัด 25 ตัวเลือกต่อเมนู จึงแบ่งเป็นหลายเมนู (Songs 1–25, 26–31) ทั้งช่องเลือกเพลงเข้าคิวและช่อง Admin View & Remove
 - **ข้อความเป็นภาษาอังกฤษทั้งหมด** — placeholder และข้อความใน embed (control, admin, selection queue)
 - **Log เรียงตามเวลา** — แสดง "Queued" ก่อน แล้วตามด้วย "Now playing" (chronological)
@@ -30,3 +30,22 @@
 
 - **sync-pbz:host** — รัน `npm run sync-pbz:host` เมื่อ Mongo อยู่ในการ์ด (ใช้ localhost แทน hostname mongodb)
 - **README** — เพิ่ม ADMIN_CONTROL_CHANNEL_ID, วิธี rebuild หลังเปลี่ยนโค้ด
+
+---
+
+## Session: Rename to Phantom Radio, Honor Points flag, Playlist fix
+
+### Rebrand: Phantom Melody → Phantom Radio
+- **Display & config** — ชื่อบอท/เพลย์ลิสต์/ข้อความทั้งหมดจาก "Phantom Melody" เป็น "Phantom Radio"
+- **Env & code** — ตัวแปร `PHANTOM_MELODY_*` → `PHANTOM_RADIO_*` ใน .env และทุกไฟล์ใน src/
+- **Package & Docker** — ชื่อโปรเจกต์ `phantom-melody` → `phantom-radio`, service/container `phantom-radio` / `phantom-radio-bot`
+- **Playlist name** — "Phantom Blade Zero Melody" → "Phantom Blade Zero Radio" (config + sync script)
+
+### Honor Points (Feature Flag)
+- **ENABLE_HONOR_POINTS** — ใส่ใน .env (ค่าเริ่มต้น `false`) เมื่อปิด: ไม่หัก/ไม่เพิ่มแต้ม, pin/upvote/unlock ใช้ได้ฟรี, ยอดใน DB ไม่ถูกแก้
+- **HonorPointService** — เมื่อ `ENABLE_HONOR_POINTS !== 'true'`: `deductPoints`/`addPoints` เป็น no-op (return success โดยไม่เขียน DB)
+- **balance** — แสดง footer "Honor Points spending is currently disabled" เมื่อปิด
+
+### Playlist sync & Discord embed
+- **sync-pbz-from-files.js** — ใช้ชื่อเพลย์ลิสต์ "Phantom Blade Zero Radio" ให้ตรงกับบอท (เดิมใช้ "Phantom Blade Zero Melody" เลย embed แสดง 0 tracks)
+- **Refresh after DB connect** — หลัง `connectDB()` สำเร็จ และหลัง Discord ready 4 วินาที เรียก `musicInteractionService.refreshSongSelection()` เพื่ออัปเดต embed playlist/song-selection/admin ให้ดึง tracks จาก DB (แก้กรณี embed ขึ้น 0 tracks เพราะ setupAllButtons รันก่อน DB เชื่อมต่อ)

@@ -56,7 +56,7 @@ const MUSIC_DIR = path.join(__dirname, 'music');
 
 async function main() {
   console.log('========================================');
-  console.log('   Phantom Melody - Migration Script   ');
+  console.log('   Phantom Radio - Migration Script   ');
   console.log('========================================');
   console.log('');
   

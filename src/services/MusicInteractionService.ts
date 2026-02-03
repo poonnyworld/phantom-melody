@@ -48,11 +48,11 @@ export class MusicInteractionService {
   private async setupAllButtons(client: Client): Promise<void> {
     console.log('[MusicInteractionService] Setting up all persistent buttons...');
 
-    const voteSkipChannelId = process.env.PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const songSelectionChannelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const musicPlayerChannelId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID;
-    const playlistChannelId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
-    const manualChannelId = process.env.PHANTOM_MELODY_MANUAL_CHANNEL_ID;
+    const voteSkipChannelId = process.env.PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
+    const songSelectionChannelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
+    const musicPlayerChannelId = process.env.PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID;
+    const playlistChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
+    const manualChannelId = process.env.PHANTOM_RADIO_MANUAL_CHANNEL_ID;
     const playlistControlAdminId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     const adminControlChannelId = process.env.ADMIN_CONTROL_CHANNEL_ID;
 
@@ -80,7 +80,7 @@ export class MusicInteractionService {
   }
 
   /**
-   * PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID — Vote Skip only (embed + Vote Skip button)
+   * PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID — Vote Skip only (embed + Vote Skip button)
    */
   private async ensureVoteSkipMessage(client: Client, channelId: string): Promise<void> {
     try {
@@ -104,7 +104,7 @@ export class MusicInteractionService {
           '**Control the music player with the buttons below**\n\n' +
           `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)`
         )
-        .setFooter({ text: `Phantom Blade Zero Melody • Queue limit: ${MAX_QUEUE_SIZE} songs` })
+        .setFooter({ text: `Phantom Blade Zero Radio • Queue limit: ${MAX_QUEUE_SIZE} songs` })
         .setTimestamp();
 
       const skipButton = new ButtonBuilder()
@@ -165,7 +165,7 @@ export class MusicInteractionService {
   }
 
   /**
-   * PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID — View Queue button (Now Playing is shown by NowPlayingDisplayService)
+   * PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID — View Queue button (Now Playing is shown by NowPlayingDisplayService)
    */
   private async ensureMusicPlayerMessage(client: Client, channelId: string): Promise<void> {
     try {
@@ -179,7 +179,7 @@ export class MusicInteractionService {
         .setColor(0x9B59B6)
         .setTitle('📋 View Queue')
         .setDescription('Click the button below to view the current queue.')
-        .setFooter({ text: 'Phantom Blade Zero Melody' })
+        .setFooter({ text: 'Phantom Blade Zero Radio' })
         .setTimestamp();
       const queueButton = new ButtonBuilder()
         .setCustomId('music_queue')
@@ -253,7 +253,7 @@ export class MusicInteractionService {
             : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
         )
         .setFooter({
-          text: '🗡️ Phantom Blade Zero Melody',
+          text: '🗡️ Phantom Blade Zero Radio',
         })
         .setTimestamp();
 
@@ -347,7 +347,7 @@ export class MusicInteractionService {
             : '') +
           '⚠️ Admin only'
         )
-        .setFooter({ text: 'Phantom Blade Zero Melody - Admin Panel' })
+        .setFooter({ text: 'Phantom Blade Zero Radio - Admin Panel' })
         .setTimestamp();
 
       const viewBtn = new ButtonBuilder()
@@ -430,7 +430,7 @@ export class MusicInteractionService {
           '• **Pause** — Pause playback\n' +
           '• **Resume** — Resume playback'
         )
-        .setFooter({ text: 'Admin only • Phantom Melody' })
+        .setFooter({ text: 'Admin only • Phantom Radio' })
         .setTimestamp();
 
       const skipBtn = new ButtonBuilder()
@@ -534,7 +534,7 @@ export class MusicInteractionService {
   }
 
   /**
-   * PHANTOM_MELODY_PLAYLIST_CHANNEL_ID — multi-page playlist embed only (8 tracks per page, Prev/Next).
+   * PHANTOM_RADIO_PLAYLIST_CHANNEL_ID — multi-page playlist embed only (8 tracks per page, Prev/Next).
    */
   private async ensurePlaylistDisplayMessage(client: Client, channelId: string): Promise<void> {
     try {
@@ -585,7 +585,7 @@ export class MusicInteractionService {
   }
 
   /**
-   * PHANTOM_MELODY_MANUAL_CHANNEL_ID — guide message with clickable channel links (<#id>).
+   * PHANTOM_RADIO_MANUAL_CHANNEL_ID — guide message with clickable channel links (<#id>).
    */
   private async ensureManualMessage(client: Client, channelId: string): Promise<void> {
     try {
@@ -595,13 +595,13 @@ export class MusicInteractionService {
       const botMember = await textChannel.guild.members.fetch(client.user!.id);
       if (!textChannel.permissionsFor(botMember)?.has('SendMessages')) return;
 
-      const voteSkipId = process.env.PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID || '';
-      const musicPlayerId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID || '';
-      const playlistId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || '';
-      const songSelectionId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || '';
+      const voteSkipId = process.env.PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID || '';
+      const musicPlayerId = process.env.PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID || '';
+      const playlistId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || '';
+      const songSelectionId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || '';
 
       const lines: string[] = [
-        '**How to use Phantom Melody**',
+        '**How to use Phantom Radio**',
         '',
         voteSkipId ? `• **Vote to skip** — Go to <#${voteSkipId}> and use the Vote Skip button.` : '',
         musicPlayerId ? `• **Now playing & queue** — See the current track and upcoming queue in <#${musicPlayerId}>.` : '',
@@ -611,9 +611,9 @@ export class MusicInteractionService {
 
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle('📖 Phantom Melody — Guide')
+        .setTitle('📖 Phantom Radio — Guide')
         .setDescription(lines.join('\n').slice(0, 4096) || '*Set channel IDs in .env to show links.*')
-        .setFooter({ text: 'Phantom Blade Zero Melody' })
+        .setFooter({ text: 'Phantom Blade Zero Radio' })
         .setTimestamp();
 
       const storageKey = `${channelId}_manual`;
@@ -657,7 +657,7 @@ export class MusicInteractionService {
    * Refresh the song selection menu (call after adding/removing tracks)
    */
   public async refreshSongSelection(): Promise<void> {
-    const songSelectionChannelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const songSelectionChannelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     if (songSelectionChannelId && this.client) {
       await this.ensureSongSelectionMessage(this.client, songSelectionChannelId);
     }
@@ -665,7 +665,7 @@ export class MusicInteractionService {
     if (adminChannelId && this.client) {
       await this.ensureAdminPlaylistControl(this.client, adminChannelId);
     }
-    const playlistChannelId = process.env.PHANTOM_MELODY_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const playlistChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     if (playlistChannelId && this.client) {
       await this.ensurePlaylistDisplayMessage(this.client, playlistChannelId);
     }

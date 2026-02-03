@@ -13,7 +13,7 @@ export interface IUser extends Document {
   lastCheckinDate: Date;
   dailyLuckyDrawCount: number; // Number of lucky draw plays today
   lastLuckyDrawDate: Date; // Last date when lucky draw was played
-  // Music-related fields (Phantom Melody)
+  // Music-related fields (Phantom Radio)
   monthlyListeningTime: number; // Total listening time in seconds this month
   lastListeningRewardDate: Date; // Last time listening reward was claimed
   unlockedHiddenPlaylist: boolean; // Whether hidden playlist is unlocked
@@ -73,7 +73,7 @@ const UserSchema: Schema = new Schema(
       type: Date,
       default: new Date(0), // Set to epoch to allow first play
     },
-    // Music-related fields (Phantom Melody)
+    // Music-related fields (Phantom Radio)
     monthlyListeningTime: {
       type: Number,
       default: 0,

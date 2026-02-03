@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const MUSIC_PBZ = path.join(__dirname, '..', 'music', 'pbz');
-const PLAYLIST_NAME = 'Phantom Blade Zero Melody';
+const PLAYLIST_NAME = 'Phantom Blade Zero Radio';
 const PLAYLIST_CATEGORY = 'pbz';
 
 function slugFromFilename(name) {

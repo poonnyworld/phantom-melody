@@ -1,4 +1,4 @@
-# Phantom Melody Bot
+# Phantom Radio Bot
 
 A Discord music bot for Phantom Blade Zero community. Features a turn-based song selection queue system for fair music sharing.
 
@@ -74,48 +74,48 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 
 ### User channels
 
-| Channel (example name)                | Env variable                               | Purpose                                                                                            |
-| ------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `#phantom-melody-vote-skip`           | `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | **Vote Skip** — Embed + Vote Skip button only (skip when 5 votes are reached)                      |
-| `#phantom-melody-music-player`        | `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | **Now Playing + View Queue** — Now Playing (title, progress bar, upcoming queue) and View Queue    |
-| `#phantom-melody-playlist`            | `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | **Full playlist** — Multi-page embed (8 tracks per page) with Previous / Next buttons              |
-| `#phantom-melody-song-selection`      | `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → get your turn → Select Song (ephemeral), one song/turn |
-| `#phantom-melody-manual`              | `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)          |
-| Voice channel (e.g. `phantom-melody`) | `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                    |
+| Channel (example name)               | Env variable                              | Purpose                                                                                            |
+| ------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `#phantom-radio-vote-skip`           | `PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID`      | **Vote Skip** — Embed + Vote Skip button only (skip when 5 votes are reached)                      |
+| `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Now Playing + View Queue** — Now Playing (title, progress bar, upcoming queue) and View Queue    |
+| `#phantom-radio-playlist`            | `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | **Full playlist** — Multi-page embed (8 tracks per page) with Previous / Next buttons              |
+| `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → get your turn → Select Song (ephemeral), one song/turn |
+| `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)          |
+| Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                    |
 
 ### Admin channels
 
-| Channel (example name)           | Env variable                | Purpose                                                             |
-| -------------------------------- | --------------------------- | ------------------------------------------------------------------- |
-| `#admin-phantom-melody-logs`     | `ADMIN_LOGS_CHANNEL_ID`     | **Logs** — Queue additions, playback, skip, track removal, etc.     |
-| `#admin-phantom-melody-playlist` | `ADMIN_PLAYLIST_CHANNEL_ID` | **Manage playlist** — View & Remove buttons to view/remove tracks   |
-| `#admin-phantom-melody-control`  | `ADMIN_CONTROL_CHANNEL_ID`  | **Emergency/test control** — Force Skip, Pause, Resume (admin only) |
+| Channel (example name)          | Env variable                | Purpose                                                             |
+| ------------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| `#admin-phantom-radio-logs`     | `ADMIN_LOGS_CHANNEL_ID`     | **Logs** — Queue additions, playback, skip, track removal, etc.     |
+| `#admin-phantom-radio-playlist` | `ADMIN_PLAYLIST_CHANNEL_ID` | **Manage playlist** — View & Remove buttons to view/remove tracks   |
+| `#admin-phantom-radio-control`  | `ADMIN_CONTROL_CHANNEL_ID`  | **Emergency/test control** — Force Skip, Pause, Resume (admin only) |
 
 ### Optional channels
 
-| Channel                | Notes                                                                       |
-| ---------------------- | --------------------------------------------------------------------------- |
-| `#phantom-melody-chat` | General chat; no env variable — use for discussion or bot-related questions |
+| Channel               | Notes                                                                       |
+| --------------------- | --------------------------------------------------------------------------- |
+| `#phantom-radio-chat` | General chat; no env variable — use for discussion or bot-related questions |
 
 ## User Interface
 
-### Vote Skip channel (`#phantom-melody-vote-skip`)
+### Vote Skip channel (`#phantom-radio-vote-skip`)
 
 - Embed "♫ Music Player Controls" + **Vote Skip** button
 - Current song skips when 5 votes are reached
 
-### Music Player channel (`#phantom-melody-music-player`)
+### Music Player channel (`#phantom-radio-music-player`)
 
 - **Now Playing** — Track title, artist, progress bar, time, requester, upcoming queue (~5 songs)
 - **View Queue** button — Shows full queue (ephemeral, visible only to the user who clicked)
 
-### Song Selection channel (`#phantom-melody-song-selection`)
+### Song Selection channel (`#phantom-radio-song-selection`)
 
 1. **Track list embed** — Track count + instructions to Join queue then click Select Song
 2. **Song Selection Queue** — Current selector, time remaining, waiting list, Join Queue / Leave / Select Song buttons
 3. When it's your turn, you get an ephemeral message with song selection dropdowns
 
-### Playlist channel (`#phantom-melody-playlist`)
+### Playlist channel (`#phantom-radio-playlist`)
 
 - Multi-page embed (8 tracks per page)
 - **Previous** / **Next** buttons to navigate pages
@@ -148,7 +148,7 @@ This approach avoids common issues with JavaScript YouTube libraries that break 
 
 ```bash
 git clone <repository-url>
-cd phantom-melody
+cd phantom-radio
 ```
 
 2. Install dependencies
@@ -193,16 +193,16 @@ npm start
    docker-compose up -d
    ```
 
-2. Build and run Phantom Melody:
+2. Build and run Phantom Radio:
 
    ```bash
-   cd phantom-melody
+   cd phantom-radio
    docker-compose up -d --build
    ```
 
 3. View logs:
    ```bash
-   docker-compose logs -f phantom-melody
+   docker-compose logs -f phantom-radio
    ```
 
 #### BGM / PBZ playlist when running with Docker
@@ -211,7 +211,7 @@ npm start
 - Update `config/pbz-bgm-tracks.js` to match your filenames, then run the seed **on the host** (Mongo runs in Docker):
 
   ```bash
-  # On host (from phantom-melody/)
+  # On host (from phantom-radio/)
   MONGO_URI=mongodb://localhost:27017/honorbot npm run sync-pbz:host
   ```
 
@@ -229,13 +229,13 @@ docker-compose up -d
 docker-compose down
 
 # View logs
-docker-compose logs -f phantom-melody
+docker-compose logs -f phantom-radio
 
 # Rebuild after code changes
 docker-compose up -d --build
 
 # Restart bot
-docker-compose restart phantom-melody
+docker-compose restart phantom-radio
 ```
 
 ## Rebuild after code changes
@@ -247,25 +247,25 @@ If you change display text (e.g. placeholders, messages) or add new buttons, **r
 
 ## Environment Variables
 
-| Variable                                   | Description                                                    |
-| ------------------------------------------ | -------------------------------------------------------------- |
-| `DISCORD_TOKEN`                            | Phantom Melody bot token                                       |
-| `CLIENT_ID`                                | Discord application client ID                                  |
-| `GUILD_ID`                                 | Server (guild) ID for command deployment                       |
-| `MONGO_URI`                                | MongoDB connection string                                      |
-| **User Channels**                          |                                                                |
-| `PHANTOM_MELODY_VOICE_CHANNEL_ID`          | Voice channel for music playback                               |
-| `PHANTOM_MELODY_VOTE_SKIP_CHANNEL_ID`      | Vote Skip only (embed + Vote Skip button)                      |
-| `PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID`   | Now Playing display + View Queue button                        |
-| `PHANTOM_MELODY_PLAYLIST_CHANNEL_ID`       | Full playlist (multi-page embed, Prev/Next)                    |
-| `PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (one song per turn)                   |
-| `PHANTOM_MELODY_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)             |
-| **Admin Channels**                         |                                                                |
-| `ADMIN_LOGS_CHANNEL_ID`                    | Admin logs - playlist changes, queue, playback events          |
-| `ADMIN_PLAYLIST_CHANNEL_ID`                | Admin panel for Add/Remove songs                               |
-| `ADMIN_CONTROL_CHANNEL_ID`                 | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
-| **Legacy**                                 |                                                                |
-| `PHANTOM_MELODY_TEXT_CHANNEL_ID`           | Fallback text channel                                          |
+| Variable                                  | Description                                                    |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `DISCORD_TOKEN`                           | Phantom Radio bot token                                        |
+| `CLIENT_ID`                               | Discord application client ID                                  |
+| `GUILD_ID`                                | Server (guild) ID for command deployment                       |
+| `MONGO_URI`                               | MongoDB connection string                                      |
+| **User Channels**                         |                                                                |
+| `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                               |
+| `PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID`      | Vote Skip only (embed + Vote Skip button)                      |
+| `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Now Playing display + View Queue button                        |
+| `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | Full playlist (multi-page embed, Prev/Next)                    |
+| `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (one song per turn)                   |
+| `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)             |
+| **Admin Channels**                        |                                                                |
+| `ADMIN_LOGS_CHANNEL_ID`                   | Admin logs - playlist changes, queue, playback events          |
+| `ADMIN_PLAYLIST_CHANNEL_ID`               | Admin panel for Add/Remove songs                               |
+| `ADMIN_CONTROL_CHANNEL_ID`                | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
+| **Legacy**                                |                                                                |
+| `PHANTOM_RADIO_TEXT_CHANNEL_ID`           | Fallback text channel                                          |
 
 ## Admin: Adding Songs
 

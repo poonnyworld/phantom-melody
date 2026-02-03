@@ -1,6 +1,6 @@
 # Music Files Directory
 
-This directory contains local MP3 files for the Phantom Melody bot.
+This directory contains local MP3 files for the Phantom Radio bot.
 
 ## Directory Structure
 

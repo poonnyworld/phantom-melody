@@ -45,7 +45,11 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           inline: true,
         }
       )
-      .setFooter({ text: 'Earn Honor Points by interacting with Honor Bot!' });
+      .setFooter({
+        text: process.env.ENABLE_HONOR_POINTS === 'true'
+          ? 'Earn Honor Points by interacting with Honor Bot!'
+          : 'Honor Points spending is currently disabled. Balance is unchanged.',
+      });
 
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {

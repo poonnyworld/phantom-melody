@@ -1,5 +1,5 @@
 import { Client, Collection, GatewayIntentBits, Events, Interaction } from 'discord.js';
-import { connectDB } from './utils/connectDB';
+import { connectDB, isDBConnected } from './utils/connectDB';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import dotenv from 'dotenv';
@@ -122,7 +122,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 
 // When bot is ready
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`✓ Phantom Melody is online as ${readyClient.user.tag}`);
+  console.log(`✓ Phantom Radio is online as ${readyClient.user.tag}`);
   console.log(`✓ Serving ${readyClient.guilds.cache.size} guild(s)`);
 
   // Start listening reward service
@@ -131,6 +131,16 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Start music interaction service (for buttons)
   musicInteractionService.start(readyClient);
+
+  // Refresh playlist/song-selection embeds after a short delay so DB has time to connect
+  // (setupAllButtons may run before connectDB() resolves, showing 0 tracks otherwise)
+  setTimeout(() => {
+    if (isDBConnected()) {
+      musicInteractionService.refreshSongSelection().catch((err) =>
+        console.error('[Ready] Refresh playlists:', err)
+      );
+    }
+  }, 4000);
 
   // Start music log service (for persistent log display)
   musicLogService.start(readyClient);
@@ -176,13 +186,21 @@ async function resetMonthlyStats() {
 // Main startup function
 async function main() {
   console.log('╔════════════════════════════════════════╗');
-  console.log('║       Phantom Melody Bot Starting      ║');
+  console.log('║       Phantom Radio Bot Starting      ║');
   console.log('╚════════════════════════════════════════╝');
 
-  // Connect to database (non-blocking)
-  connectDB().catch(err => {
-    console.error('Database connection error:', err);
-  });
+  // Connect to database (non-blocking); refresh playlist embeds once DB is ready
+  connectDB()
+    .then(() => {
+      if (client.isReady()) {
+        musicInteractionService.refreshSongSelection().catch((err) =>
+          console.error('[Startup] Refresh playlists after DB connect:', err)
+        );
+      }
+    })
+    .catch(err => {
+      console.error('Database connection error:', err);
+    });
 
   // Load commands and events
   await loadCommands();

@@ -15,17 +15,17 @@ export async function execute(oldState: VoiceState, newState: VoiceState) {
   const userId = newState.member?.user.id;
   if (!userId || newState.member?.user.bot) return;
 
-  const phantomMelodyVoiceChannel = process.env.PHANTOM_MELODY_VOICE_CHANNEL_ID;
-  if (!phantomMelodyVoiceChannel) return;
+  const phantomRadioVoiceChannel = process.env.PHANTOM_RADIO_VOICE_CHANNEL_ID;
+  if (!phantomRadioVoiceChannel) return;
 
-  // User joined the Phantom Melody voice channel
-  if (!oldState.channelId && newState.channelId === phantomMelodyVoiceChannel) {
+  // User joined the Phantom Radio voice channel
+  if (!oldState.channelId && newState.channelId === phantomRadioVoiceChannel) {
     voiceTimestamps.set(userId, { joinedAt: new Date() });
-    console.log(`[Voice] ${newState.member?.user.username} joined Phantom Melody channel`);
+    console.log(`[Voice] ${newState.member?.user.username} joined Phantom Radio channel`);
   }
 
-  // User left the Phantom Melody voice channel
-  if (oldState.channelId === phantomMelodyVoiceChannel && newState.channelId !== phantomMelodyVoiceChannel) {
+  // User left the Phantom Radio voice channel
+  if (oldState.channelId === phantomRadioVoiceChannel && newState.channelId !== phantomRadioVoiceChannel) {
     const timestamp = voiceTimestamps.get(userId);
     if (timestamp) {
       const duration = Math.floor((Date.now() - timestamp.joinedAt.getTime()) / 1000);

@@ -21,7 +21,7 @@ const commandsPath = __dirname.includes('dist')
 
 async function deployCommands() {
   console.log('╔════════════════════════════════════════╗');
-  console.log('║    Phantom Melody Command Deployment   ║');
+  console.log('║    Phantom Radio Command Deployment   ║');
   console.log('╚════════════════════════════════════════╝');
   console.log('');
 

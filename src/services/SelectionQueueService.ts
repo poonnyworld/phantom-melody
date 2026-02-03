@@ -255,7 +255,7 @@ class SelectionQueueService {
    * Update the display message
    */
   public async updateDisplay(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;

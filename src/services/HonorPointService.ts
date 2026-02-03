@@ -10,6 +10,11 @@ export interface HonorPointResult {
   cost?: number;
 }
 
+/** When false, no points are deducted or added; pin/upvote/unlock still work (free). */
+function isHonorEnabled(): boolean {
+  return process.env.ENABLE_HONOR_POINTS === 'true';
+}
+
 export class HonorPointService {
   // Get or create user
   async getOrCreateUser(userId: string, username: string): Promise<IUser | null> {
@@ -58,7 +63,16 @@ export class HonorPointService {
 
     try {
       const user = await User.findOne({ userId });
-      
+
+      if (!isHonorEnabled()) {
+        return {
+          success: true,
+          message: `Honor Points are disabled. Action allowed without cost.`,
+          newBalance: user?.honorPoints ?? 0,
+          cost: amount,
+        };
+      }
+
       if (!user) {
         return { success: false, message: 'User not found. Please interact with Honor Bot first!' };
       }
@@ -97,7 +111,18 @@ export class HonorPointService {
 
     try {
       const user = await User.findOne({ userId });
-      
+
+      if (!isHonorEnabled()) {
+        if (!user) {
+          return { success: false, message: 'User not found' };
+        }
+        return {
+          success: true,
+          message: `Honor Points are disabled. Reward not added; progress still saved.`,
+          newBalance: user.honorPoints,
+        };
+      }
+
       if (!user) {
         return { success: false, message: 'User not found' };
       }

@@ -77,7 +77,7 @@ export class NowPlayingDisplayService {
    * Ensure the display message exists and is updated
    */
   private async ensureDisplayMessage(): Promise<void> {
-    const channelId = process.env.PHANTOM_MELODY_MUSIC_PLAYER_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
+    const channelId = process.env.PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;
@@ -189,7 +189,7 @@ export class NowPlayingDisplayService {
     const statusEmoji = state === 'playing' ? '● Playing in:' : state === 'paused' ? '⏸️ Paused' : '⏹️ Stopped';
     
     // Get voice channel name
-    const voiceChannelId = process.env.PHANTOM_MELODY_VOICE_CHANNEL_ID;
+    const voiceChannelId = process.env.PHANTOM_RADIO_VOICE_CHANNEL_ID;
     let voiceChannelName = 'Voice Channel';
     if (voiceChannelId && this.client) {
       try {
