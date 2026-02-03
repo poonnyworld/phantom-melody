@@ -104,7 +104,7 @@ export class MusicInteractionService {
           '**Control the music player with the buttons below**\n\n' +
           `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)`
         )
-        .setFooter({ text: `Phantom Blade Zero Radio • Queue limit: ${MAX_QUEUE_SIZE} songs` })
+        .setFooter({ text: `${MAIN_PLAYLIST.displayName} • Queue limit: ${MAX_QUEUE_SIZE} songs` })
         .setTimestamp();
 
       const skipButton = new ButtonBuilder()
@@ -152,7 +152,7 @@ export class MusicInteractionService {
       for (const [, msg] of allInChannel) {
         if (msg.author.id !== client.user!.id || msg.id === voteSkipMessageId) continue;
         const title = msg.embeds[0]?.title ?? '';
-        const isPlaylistInfo = title.includes('Phantom Blade Zero') && !title.includes('— Playlist') && !title.includes('♫');
+        const isPlaylistInfo = (title.includes(MAIN_PLAYLIST.displayName) || title.includes(MAIN_PLAYLIST.name)) && !title.includes('— Playlist') && !title.includes('♫');
         const isSelectionQueue = title.includes('Song Selection Queue');
         if (isPlaylistInfo || isSelectionQueue) {
           await msg.delete().catch(() => {});
@@ -179,7 +179,7 @@ export class MusicInteractionService {
         .setColor(0x9B59B6)
         .setTitle('📋 View Queue')
         .setDescription('Click the button below to view the current queue.')
-        .setFooter({ text: 'Phantom Blade Zero Radio' })
+        .setFooter({ text: MAIN_PLAYLIST.displayName })
         .setTimestamp();
       const queueButton = new ButtonBuilder()
         .setCustomId('music_queue')
@@ -244,7 +244,7 @@ export class MusicInteractionService {
       const hasTracks = trackCount > 0;
       const embed = new EmbedBuilder()
         .setColor(0x9B59B6)
-        .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
+        .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.displayName}`)
         .setDescription(
           `${MAIN_PLAYLIST.description}\n\n` +
           `**${trackCount}** tracks in playlist\n\n` +
@@ -253,7 +253,7 @@ export class MusicInteractionService {
             : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
         )
         .setFooter({
-          text: '🗡️ Phantom Blade Zero Radio',
+          text: `${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.displayName}`,
         })
         .setTimestamp();
 
@@ -279,7 +279,7 @@ export class MusicInteractionService {
         const messages = await textChannel.messages.fetch({ limit: 50 });
         for (const [id, msg] of messages) {
           if (msg.author.id === client.user!.id && msg.embeds.length > 0) {
-            const hasPlaylistEmbed = msg.embeds.some((emb: any) => emb.title?.includes(MAIN_PLAYLIST.name));
+            const hasPlaylistEmbed = msg.embeds.some((emb: any) => emb.title?.includes(MAIN_PLAYLIST.name) || emb.title?.includes(MAIN_PLAYLIST.displayName));
             if (hasPlaylistEmbed) {
               buttonMessage = msg;
               this.buttonMessageIds.set(`${channelId}_songs`, id);
@@ -338,7 +338,7 @@ export class MusicInteractionService {
 
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle(`🔧 Admin: ${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
+        .setTitle(`🔧 Admin: ${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.displayName}`)
         .setDescription(
           `**${trackCount}** tracks in playlist\n\n` +
           '• **View & Remove** — View playlist and remove tracks\n\n' +
@@ -347,7 +347,7 @@ export class MusicInteractionService {
             : '') +
           '⚠️ Admin only'
         )
-        .setFooter({ text: 'Phantom Blade Zero Radio - Admin Panel' })
+        .setFooter({ text: `${MAIN_PLAYLIST.displayName} - Admin Panel` })
         .setTimestamp();
 
       const viewBtn = new ButtonBuilder()
@@ -512,7 +512,7 @@ export class MusicInteractionService {
         : '*No tracks*';
     const embed = new EmbedBuilder()
       .setColor(0x9B59B6)
-      .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name} — Playlist`)
+      .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.displayName} — Playlist`)
       .setDescription(description.slice(0, 4096))
       .setFooter({ text: `Page ${safePage + 1} / ${totalPages} • ${tracks.length} tracks total` })
       .setTimestamp();
@@ -613,7 +613,7 @@ export class MusicInteractionService {
         .setColor(0x5865F2)
         .setTitle('📖 Phantom Radio — Guide')
         .setDescription(lines.join('\n').slice(0, 4096) || '*Set channel IDs in .env to show links.*')
-        .setFooter({ text: 'Phantom Blade Zero Radio' })
+        .setFooter({ text: MAIN_PLAYLIST.displayName })
         .setTimestamp();
 
       const storageKey = `${channelId}_manual`;

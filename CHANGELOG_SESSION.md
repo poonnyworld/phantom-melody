@@ -36,16 +36,30 @@
 ## Session: Rename to Phantom Radio, Honor Points flag, Playlist fix
 
 ### Rebrand: Phantom Melody → Phantom Radio
+
 - **Display & config** — ชื่อบอท/เพลย์ลิสต์/ข้อความทั้งหมดจาก "Phantom Melody" เป็น "Phantom Radio"
 - **Env & code** — ตัวแปร `PHANTOM_MELODY_*` → `PHANTOM_RADIO_*` ใน .env และทุกไฟล์ใน src/
 - **Package & Docker** — ชื่อโปรเจกต์ `phantom-melody` → `phantom-radio`, service/container `phantom-radio` / `phantom-radio-bot`
 - **Playlist name** — "Phantom Blade Zero Melody" → "Phantom Blade Zero Radio" (config + sync script)
 
 ### Honor Points (Feature Flag)
+
 - **ENABLE_HONOR_POINTS** — ใส่ใน .env (ค่าเริ่มต้น `false`) เมื่อปิด: ไม่หัก/ไม่เพิ่มแต้ม, pin/upvote/unlock ใช้ได้ฟรี, ยอดใน DB ไม่ถูกแก้
 - **HonorPointService** — เมื่อ `ENABLE_HONOR_POINTS !== 'true'`: `deductPoints`/`addPoints` เป็น no-op (return success โดยไม่เขียน DB)
 - **balance** — แสดง footer "Honor Points spending is currently disabled" เมื่อปิด
 
 ### Playlist sync & Discord embed
+
 - **sync-pbz-from-files.js** — ใช้ชื่อเพลย์ลิสต์ "Phantom Blade Zero Radio" ให้ตรงกับบอท (เดิมใช้ "Phantom Blade Zero Melody" เลย embed แสดง 0 tracks)
 - **Refresh after DB connect** — หลัง `connectDB()` สำเร็จ และหลัง Discord ready 4 วินาที เรียก `musicInteractionService.refreshSongSelection()` เพื่ออัปเดต embed playlist/song-selection/admin ให้ดึง tracks จาก DB (แก้กรณี embed ขึ้น 0 tracks เพราะ setupAllButtons รันก่อน DB เชื่อมต่อ)
+
+---
+
+## Session: Display "Phantom Radio" in all embeds
+
+- **MAIN_PLAYLIST.displayName** — เพิ่ม `displayName: 'Phantom Radio'` ใน config; เก็บ `name: 'Phantom Blade Zero Radio'` สำหรับ DB/sync
+- **ช่อง Music Player (PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID)** — Now Playing idle/title และ View Queue footer แสดง "Phantom Radio" แทน "Phantom Blade Zero Melody" / "Phantom Blade Zero Radio"
+- **ช่องอื่นๆ** — Vote Skip, Song Selection, Admin Playlist, Playlist (multi-page), Manual/Guide ใช้ `MAIN_PLAYLIST.displayName` ใน title/footer ทั้งหมด
+- **NowPlayingDisplayService** — import MAIN_PLAYLIST, ใช้ displayName ใน generateIdleEmbed และ footer ของ playing embed
+- **MusicInteractionService** — ทุก embed ใช้ MAIN_PLAYLIST.displayName; การเช็ค message เก่ายังรองรับทั้ง name และ displayName
+- **QueueManager** — คอมเมนต์และ log ใช้ displayName

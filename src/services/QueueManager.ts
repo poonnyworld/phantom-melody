@@ -45,7 +45,7 @@ export class QueueManager {
   }
 
   /**
-   * Get all tracks from the main playlist (Phantom Blade Zero Melody)
+   * Get all tracks from the main playlist (name in DB: Phantom Blade Zero Radio; display: Phantom Radio)
    * รวมทั้งแทร็กจาก YouTube และ local (WAV) ตาม trackIds ในเพลย์ลิสต์
    */
   async getAllTracks(): Promise<ITrack[]> {
@@ -269,7 +269,7 @@ export class QueueManager {
 
   async initializePlaylists(): Promise<void> {
     // No longer needed - single playlist
-    console.log('[QueueManager] Using single playlist: Phantom Blade Zero Melody');
+    console.log('[QueueManager] Using single playlist:', MAIN_PLAYLIST.displayName);
   }
 
   async shuffleAllPlaylists(): Promise<void> {

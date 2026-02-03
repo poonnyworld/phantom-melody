@@ -1,5 +1,5 @@
 import { Client, TextChannel, EmbedBuilder, Message, AttachmentBuilder } from 'discord.js';
-import { formatDuration } from '../config/playlists';
+import { formatDuration, MAIN_PLAYLIST } from '../config/playlists';
 import { QueueItem } from './MusicPlayer';
 
 /**
@@ -119,7 +119,7 @@ export class NowPlayingDisplayService {
         for (const [id, msg] of messages) {
           if (msg.author.id === this.client.user!.id) {
             const hasDisplayEmbed = msg.embeds.some(emb =>
-              emb.title?.includes('Now Playing') || emb.title?.includes('Phantom Blade Zero')
+              emb.title?.includes('Now Playing') || emb.title?.includes(MAIN_PLAYLIST.displayName) || emb.title?.includes(MAIN_PLAYLIST.name)
             );
             if (hasDisplayEmbed) {
               displayMessage = msg;
@@ -272,7 +272,7 @@ export class NowPlayingDisplayService {
     }
 
     embed.setFooter({
-      text: `🗡️ Phantom Blade Zero Melody`,
+      text: '🎵 Phantom Radio',
     });
     embed.setTimestamp();
 
@@ -285,10 +285,10 @@ export class NowPlayingDisplayService {
   private generateIdleEmbed(): EmbedBuilder {
     return new EmbedBuilder()
       .setColor(0x2F3136)
-      .setTitle('🎵 Phantom Blade Zero Melody')
+      .setTitle(`🎵 ${MAIN_PLAYLIST.displayName}`)
       .setDescription('*No music currently playing*\n\nSelect songs from the playlist in the Control channel to start listening!')
       .setFooter({
-        text: '🗡️ Phantom Blade Zero Melody',
+        text: `🎵 ${MAIN_PLAYLIST.displayName}`,
       })
       .setTimestamp();
   }

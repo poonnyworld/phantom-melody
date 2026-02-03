@@ -1,7 +1,8 @@
 import { TrackCategory } from '../models/Track';
 
 export interface PlaylistConfig {
-  name: string;
+  name: string;        // DB playlist document name (do not change without migration)
+  displayName: string; // Shown in Discord embeds/titles/footers
   category: TrackCategory | 'all';
   description: string;
   emoji: string;
@@ -10,6 +11,7 @@ export interface PlaylistConfig {
 // Single playlist configuration for Phantom Blade Zero
 export const MAIN_PLAYLIST: PlaylistConfig = {
   name: 'Phantom Blade Zero Radio',
+  displayName: 'Phantom Radio',
   category: 'pbz', // Single category for all tracks
   description: 'Official soundtrack from Phantom Blade Zero',
   emoji: '🗡️',
