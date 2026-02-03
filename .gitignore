@@ -23,7 +23,7 @@ npm-debug.log*
 # Coverage
 coverage/
 
-# Music files (add your own)
+# Music files (add your own – ไม่ push ขึ้น git)
 music/**/*.mp3
 music/**/*.wav
 music/**/*.ogg

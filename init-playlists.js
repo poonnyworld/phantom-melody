@@ -1,6 +1,10 @@
-// Script to initialize playlists with tracks
+// Script to initialize playlists – เหลือเฉพาะ PBZ (Phantom Blade Zero Melody)
+// ลบเพลย์ลิสต์อื่นทั้งหมด แล้วสร้าง/อัปเดตเฉพาะเพลย์ลิสต์ PBZ
 const mongoose = require('mongoose');
 require('dotenv').config();
+
+const PLAYLIST_NAME = 'Phantom Blade Zero Melody';
+const PLAYLIST_CATEGORY = 'pbz';
 
 const PlaylistSchema = new mongoose.Schema({
   name: String,
@@ -27,20 +31,16 @@ async function initPlaylists() {
     const Playlist = mongoose.model('Playlist', PlaylistSchema);
     const Track = mongoose.model('Track', TrackSchema);
 
-    // Get all tracks
-    const tracks = await Track.find({});
-    console.log(`✓ Found ${tracks.length} tracks`);
+    // ลบเพลย์ลิสต์ที่ไม่ใช่ PBZ
+    const deleted = await Playlist.deleteMany({ name: { $ne: PLAYLIST_NAME } });
+    if (deleted.deletedCount > 0) {
+      console.log(`✓ Removed ${deleted.deletedCount} non-PBZ playlist(s)`);
+    }
 
-    // Get tracks by category
-    const battleTracks = tracks.filter(t => t.category === 'battle' && !t.isHidden);
-    const storyTracks = tracks.filter(t => t.category === 'story' && !t.isHidden);
-    const explorationTracks = tracks.filter(t => t.category === 'exploration' && !t.isHidden);
-    const emotionalTracks = tracks.filter(t => t.category === 'emotional' && !t.isHidden);
-    const ambientTracks = tracks.filter(t => t.category === 'ambient' && !t.isHidden);
-    const hiddenTracks = tracks.filter(t => t.isHidden);
-    const allTracks = tracks.filter(t => !t.isHidden);
+    // ดึงเฉพาะแทร็ก category pbz (ไม่ซ่อน)
+    const pbzTracks = await Track.find({ category: PLAYLIST_CATEGORY, isHidden: { $ne: true } });
+    console.log(`✓ Found ${pbzTracks.length} PBZ tracks`);
 
-    // Shuffle function
     function shuffle(array) {
       const shuffled = [...array];
       for (let i = shuffled.length - 1; i > 0; i--) {
@@ -50,88 +50,32 @@ async function initPlaylists() {
       return shuffled;
     }
 
-    const playlists = [
-      {
-        name: 'Battle Music',
-        category: 'battle',
-        description: 'Epic battle themes and combat music',
-        trackIds: battleTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(battleTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'Story Music',
-        category: 'story',
-        description: 'Narrative and storytelling themes',
-        trackIds: storyTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(storyTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'Exploration Music',
-        category: 'exploration',
-        description: 'Adventure and exploration themes',
-        trackIds: explorationTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(explorationTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'Emotional Music',
-        category: 'emotional',
-        description: 'Touching and emotional pieces',
-        trackIds: emotionalTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(emotionalTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'Ambient Music',
-        category: 'ambient',
-        description: 'Background and atmospheric music',
-        trackIds: ambientTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(ambientTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'Hidden Treasures',
-        category: 'hidden',
-        description: 'Exclusive tracks for true fans',
-        trackIds: hiddenTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(hiddenTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-      {
-        name: 'All Tracks',
-        category: 'all',
-        description: 'The complete music collection',
-        trackIds: allTracks.map(t => t.trackId),
-        shuffledOrder: shuffle(allTracks.map(t => t.trackId)),
-        isDefault: true,
-        lastShuffled: new Date(),
-      },
-    ];
+    const trackIds = pbzTracks.map((t) => t.trackId);
+    const shuffledOrder = shuffle(trackIds);
 
-    // Update or create playlists
-    for (const playlistData of playlists) {
-      const existing = await Playlist.findOne({ name: playlistData.name });
-      if (existing) {
-        existing.trackIds = playlistData.trackIds;
-        existing.shuffledOrder = playlistData.shuffledOrder;
-        existing.lastShuffled = playlistData.lastShuffled;
-        await existing.save();
-        console.log(`✓ Updated playlist: ${playlistData.name} (${playlistData.trackIds.length} tracks)`);
-      } else {
-        await Playlist.create(playlistData);
-        console.log(`✓ Created playlist: ${playlistData.name} (${playlistData.trackIds.length} tracks)`);
-      }
+    const existing = await Playlist.findOne({ name: PLAYLIST_NAME });
+    if (existing) {
+      existing.trackIds = trackIds;
+      existing.shuffledOrder = shuffledOrder;
+      existing.lastShuffled = new Date();
+      existing.category = PLAYLIST_CATEGORY;
+      existing.description = 'Official soundtrack from Phantom Blade Zero';
+      await existing.save();
+      console.log(`✓ Updated playlist: ${PLAYLIST_NAME} (${trackIds.length} tracks)`);
+    } else {
+      await Playlist.create({
+        name: PLAYLIST_NAME,
+        category: PLAYLIST_CATEGORY,
+        description: 'Official soundtrack from Phantom Blade Zero',
+        trackIds,
+        shuffledOrder,
+        isDefault: true,
+        lastShuffled: new Date(),
+      });
+      console.log(`✓ Created playlist: ${PLAYLIST_NAME} (${trackIds.length} tracks)`);
     }
 
-    console.log('\n✅ All playlists initialized successfully!');
+    console.log('\n✅ PBZ playlist only. All other playlists removed.');
     await mongoose.disconnect();
   } catch (error) {
     console.error('❌ Error:', error);

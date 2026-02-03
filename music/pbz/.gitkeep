@@ -1,0 +1,3 @@
+# วางไฟล์ BGM .wav ของ Phantom Blade Zero ที่นี่
+# ไฟล์ .wav ถูก ignore โดย git (ไม่ push ขึ้น repo)
+# แก้ config/pbz-bgm-tracks.js ให้ตรงกับชื่อไฟล์ แล้วรัน: node scripts/seed-pbz-bgm.js

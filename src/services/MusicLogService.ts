@@ -256,8 +256,9 @@ export class MusicLogService {
     if (this.logEntries.length === 0) {
       description = '*No music playback events yet. Playback events will appear here automatically.*';
     } else {
-      // Format log entries similar to Honor Bot's format
-      for (const entry of this.logEntries) {
+      // Show chronological order (oldest first): "Queued" then "Now playing"
+      const chronological = [...this.logEntries].reverse();
+      for (const entry of chronological) {
         const timestamp = Math.floor(entry.timestamp.getTime() / 1000);
         const emoji = this.getEmojiForType(entry.type);
         const timeStr = `<t:${timestamp}:T>`;

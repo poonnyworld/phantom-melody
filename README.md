@@ -75,12 +75,14 @@ A fair turn-based system for selecting songs:
 Contains three main components:
 
 1. **Selection Queue Panel**
+
    - Shows who is currently selecting
    - Countdown timer (2 minutes)
    - List of users waiting in queue
    - Join Queue / Leave buttons
 
 2. **Music Controls**
+
    - ⏭️ **Vote Skip** - Vote to skip current song (needs 5 votes)
    - 📋 **View Queue** - View the current music queue
 
@@ -183,6 +185,20 @@ npm start
    docker-compose logs -f phantom-melody
    ```
 
+#### BGM / PBZ playlist เมื่อรัน Docker
+
+- ใส่ไฟล์ BGM `.wav` ในโฟลเดอร์ `./music/pbz/` บนโฮสต์ (โฟลเดอร์นี้ถูก mount เข้า container)
+- แก้ `config/pbz-bgm-tracks.js` ให้ตรงกับชื่อไฟล์ แล้วรัน seed **บนโฮสต์** (Mongo อยู่ในการ์ดของ Docker):
+
+  ```bash
+  # บนโฮสต์ (จาก phantom-melody/)
+  MONGO_URI=mongodb://localhost:27017/honorbot npm run seed-pbz-bgm
+  ```
+
+  ถ้า Mongo อยู่คนละเครื่อง/port ให้ใช้ค่า MONGO_URI ให้ตรงกับที่ container ใช้ (เช่น `mongodb://mongodb:27017/honorbot` ใช้ได้เฉพาะจากภายใน Docker network)
+
+- ลบเพลย์ลิสต์เก่าเหลือแค่ PBZ: `node init-playlists.js` (รันบนโฮสต์ พร้อม MONGO_URI เดียวกัน)
+
 #### Docker Commands
 
 ```bash
@@ -202,23 +218,31 @@ docker-compose up -d --build
 docker-compose restart phantom-melody
 ```
 
+## Rebuild after code changes
+
+If you change display text (e.g. placeholders, messages) or add new buttons, **rebuild and restart** so the bot uses the new code:
+
+- **Docker:** `docker-compose up -d --build`
+- **Local:** `npm run build` then restart the process (`npm start` or `node dist/index.js`)
+
 ## Environment Variables
 
-| Variable                            | Description                                              |
-| ----------------------------------- | -------------------------------------------------------- |
-| `DISCORD_TOKEN`                     | Phantom Melody bot token                                 |
-| `CLIENT_ID`                         | Discord application client ID                            |
-| `GUILD_ID`                          | Server (guild) ID for command deployment                 |
-| `MONGO_URI`                         | MongoDB connection string                                |
-| **User Channels**                   |                                                          |
-| `PHANTOM_MELODY_VOICE_CHANNEL_ID`   | Voice channel for music playback                         |
-| `PHANTOM_MELODY_CONTROL_CHANNEL_ID` | Channel for controls, selection queue, and song dropdown |
-| `PHANTOM_MELODY_DISPLAY_CHANNEL_ID` | Channel for Now Playing display                          |
-| **Admin Channels**                  |                                                          |
-| `ADMIN_LOGS_CHANNEL_ID`             | Admin logs - playlist changes, queue, playback events    |
-| `ADMIN_PLAYLIST_CHANNEL_ID`         | Admin panel for Add/Remove songs                         |
-| **Legacy**                          |                                                          |
-| `PHANTOM_MELODY_TEXT_CHANNEL_ID`    | Fallback text channel                                    |
+| Variable                            | Description                                                    |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `DISCORD_TOKEN`                     | Phantom Melody bot token                                       |
+| `CLIENT_ID`                         | Discord application client ID                                  |
+| `GUILD_ID`                          | Server (guild) ID for command deployment                       |
+| `MONGO_URI`                         | MongoDB connection string                                      |
+| **User Channels**                   |                                                                |
+| `PHANTOM_MELODY_VOICE_CHANNEL_ID`   | Voice channel for music playback                               |
+| `PHANTOM_MELODY_CONTROL_CHANNEL_ID` | Channel for controls, selection queue, and song dropdown       |
+| `PHANTOM_MELODY_DISPLAY_CHANNEL_ID` | Channel for Now Playing display                                |
+| **Admin Channels**                  |                                                                |
+| `ADMIN_LOGS_CHANNEL_ID`             | Admin logs - playlist changes, queue, playback events          |
+| `ADMIN_PLAYLIST_CHANNEL_ID`         | Admin panel for Add/Remove songs                               |
+| `ADMIN_CONTROL_CHANNEL_ID`          | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
+| **Legacy**                          |                                                                |
+| `PHANTOM_MELODY_TEXT_CHANNEL_ID`    | Fallback text channel                                          |
 
 ## Admin: Adding Songs
 

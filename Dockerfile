@@ -27,7 +27,11 @@ RUN npm install
 # Copy source code
 COPY src/ ./src/
 
-# Copy music files (local MP3 files)
+# Copy config (PBZ BGM track list) and scripts (seed-pbz-bgm)
+COPY config/ ./config/
+COPY scripts/ ./scripts/
+
+# Copy music folder structure (.gitkeep only; real WAV/MP3 mount at runtime)
 COPY music/ ./music/
 
 # Build TypeScript

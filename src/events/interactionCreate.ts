@@ -7,15 +7,13 @@ import {
   EmbedBuilder,
   MessageFlags,
   GuildMember,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   ActionRowBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   ButtonBuilder,
   ButtonStyle,
   VoiceChannel,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { client } from '../index';
 import { isDBConnected } from '../utils/connectDB';
@@ -90,15 +88,23 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     return;
   }
 
-  // Admin: Add song button
-  if (customId === 'admin_add_song') {
-    await showAdminAddSongModal(interaction);
-    return;
-  }
-
   // Admin: View & Remove songs button
   if (customId === 'admin_view_songs') {
     await showAdminViewSongs(interaction);
+    return;
+  }
+
+  // Admin-only: Force Skip / Pause / Resume (ADMIN_CONTROL_CHANNEL_ID)
+  if (customId === 'admin_force_skip') {
+    await handleAdminForceSkip(interaction);
+    return;
+  }
+  if (customId === 'admin_pause') {
+    await handleAdminPause(interaction);
+    return;
+  }
+  if (customId === 'admin_resume') {
+    await handleAdminResume(interaction);
     return;
   }
 
@@ -131,14 +137,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
  * Handle select menu interactions
  */
 async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
-  // User song selection
-  if (interaction.customId === 'song_select') {
+  // User song selection (song_select หรือ song_select_0, song_select_1, ...)
+  if (interaction.customId.startsWith('song_select')) {
     await handleSongSelect(interaction);
     return;
   }
 
-  // Admin: Remove track selection
-  if (interaction.customId === 'admin_remove_select') {
+  // Admin: Remove track selection (admin_remove_select หรือ admin_remove_select_0, ...)
+  if (interaction.customId.startsWith('admin_remove_select')) {
     await handleAdminRemoveSelect(interaction);
     return;
   }
@@ -149,12 +155,6 @@ async function handleSelectMenuInteraction(interaction: StringSelectMenuInteract
  */
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
   const customId = interaction.customId;
-
-  // Admin add song modal
-  if (customId === 'admin_add_song_modal') {
-    await handleAdminAddSongModal(interaction);
-    return;
-  }
 }
 
 // ============================================
@@ -377,108 +377,34 @@ async function handleQueueButton(interaction: ButtonInteraction): Promise<void> 
 // ADMIN HANDLERS
 // ============================================
 
-/**
- * Show admin add song modal
- */
-async function showAdminAddSongModal(interaction: ButtonInteraction): Promise<void> {
-  const urlInput = new TextInputBuilder()
-    .setCustomId('url')
-    .setLabel('YouTube URL')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('https://www.youtube.com/watch?v=...')
-    .setRequired(true)
-    .setMaxLength(500);
+const OPTIONS_PER_SELECT = 25;
+const MAX_SELECT_ROWS = 5;
 
-  const titleInput = new TextInputBuilder()
-    .setCustomId('title')
-    .setLabel('Title (optional)')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('Leave blank to use YouTube title')
-    .setRequired(false)
-    .setMaxLength(200);
-
-  const artistInput = new TextInputBuilder()
-    .setCustomId('artist')
-    .setLabel('Artist (optional)')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('Leave blank to use YouTube channel name')
-    .setRequired(false)
-    .setMaxLength(200);
-
-  const modal = new ModalBuilder()
-    .setCustomId('admin_add_song_modal')
-    .setTitle('Add New Track')
-    .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(urlInput),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(titleInput),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(artistInput)
+/** สร้างหลายแถว select menu สำหรับลบเพลง (Discord จำกัด 25 ตัวเลือกต่อเมนู) */
+function buildAdminRemoveSelectRows(tracks: any[]): ActionRowBuilder<StringSelectMenuBuilder>[] {
+  const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+  const menuCount = Math.min(MAX_SELECT_ROWS, Math.ceil(tracks.length / OPTIONS_PER_SELECT));
+  for (let i = 0; i < menuCount; i++) {
+    const chunk = tracks.slice(i * OPTIONS_PER_SELECT, (i + 1) * OPTIONS_PER_SELECT);
+    const options = chunk.map((t: any) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel((t.title || t.trackId).slice(0, 100))
+        .setValue(t.trackId)
+        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
     );
-
-  await interaction.showModal(modal);
+    const start = i * OPTIONS_PER_SELECT + 1;
+    const end = Math.min((i + 1) * OPTIONS_PER_SELECT, tracks.length);
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`admin_remove_select_${i}`)
+      .setPlaceholder(`Songs ${start}–${end} — Select to remove...`)
+      .addOptions(options);
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+  }
+  return rows;
 }
 
 /**
- * Handle admin add song modal submission
- */
-async function handleAdminAddSongModal(interaction: ModalSubmitInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  if (!interaction.guild) {
-    await interaction.editReply({ content: '❌ This can only be used in a server!' });
-    return;
-  }
-
-  const url = interaction.fields.getTextInputValue('url').trim();
-  const customTitle = interaction.fields.getTextInputValue('title')?.trim() || undefined;
-  const customArtist = interaction.fields.getTextInputValue('artist')?.trim() || undefined;
-
-  if (!/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(url)) {
-    await interaction.editReply({ content: '❌ Invalid URL. Please use a YouTube link.' });
-    return;
-  }
-
-  if (!isDBConnected()) {
-    await interaction.editReply({ content: '❌ Database not connected. Try again later.' });
-    return;
-  }
-
-  const queueManager = client.queueManager;
-  const result = await queueManager.saveYouTubeTrack(url, customTitle, customArtist);
-
-  if (!result.success) {
-    await interaction.editReply({ content: `❌ ${result.error || 'Could not save track.'}` });
-    return;
-  }
-
-  const track = result.track!;
-  const { musicLogService } = await import('../services/MusicLogService');
-  musicLogService.addLog(`Admin added track: **${track.title}**`, 'success');
-
-  const embed = new EmbedBuilder()
-    .setTitle('✅ Track Added Successfully!')
-    .setDescription(`**${track.title}**`)
-    .addFields(
-      { name: 'Artist', value: track.artist || 'Unknown', inline: true },
-      { name: 'Duration', value: formatDuration(track.duration || 0), inline: true },
-      { name: 'Track ID', value: `\`${track.trackId}\``, inline: true }
-    )
-    .setColor(0x57F287)
-    .setFooter({ text: `Added by ${interaction.user.username}` });
-
-  if (track.thumbnailUrl) {
-    embed.setThumbnail(track.thumbnailUrl);
-  }
-
-  await interaction.editReply({ embeds: [embed] });
-
-  // Refresh song selection menus
-  const { MusicInteractionService } = await import('../services/MusicInteractionService');
-  const musicInteractionService = new MusicInteractionService(client, queueManager);
-  await musicInteractionService.refreshSongSelection();
-}
-
-/**
- * Show admin view songs panel
+ * Show admin view songs panel (แสดงเพลงในเพลย์ลิสต์)
  */
 async function showAdminViewSongs(interaction: ButtonInteraction): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -486,7 +412,7 @@ async function showAdminViewSongs(interaction: ButtonInteraction): Promise<void>
   const queueManager = client.queueManager;
   const tracks = await queueManager.getAllTracks();
 
-  const maxListLines = 20;
+  const maxListLines = 50;
   const listLines = tracks.slice(0, maxListLines).map(
     (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
   );
@@ -501,22 +427,7 @@ async function showAdminViewSongs(interaction: ButtonInteraction): Promise<void>
     .setFooter({ text: `${tracks.length} tracks • Select below to remove` })
     .setTimestamp();
 
-  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-
-  if (tracks.length > 0) {
-    const maxOptions = 25;
-    const options = tracks.slice(0, maxOptions).map((t: any) =>
-      new StringSelectMenuOptionBuilder()
-        .setLabel((t.title || t.trackId).slice(0, 100))
-        .setValue(t.trackId)
-        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
-    );
-    const select = new StringSelectMenuBuilder()
-      .setCustomId('admin_remove_select')
-      .setPlaceholder('Select track to remove...')
-      .addOptions(options);
-    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
-  }
+  const components = buildAdminRemoveSelectRows(tracks);
 
   await interaction.editReply({
     embeds: [embed],
@@ -583,7 +494,7 @@ async function handleAdminConfirmRemove(interaction: ButtonInteraction): Promise
 
   // Show updated list
   const tracks = await queueManager.getAllTracks();
-  const maxListLines = 20;
+  const maxListLines = 50;
   const listLines = tracks.slice(0, maxListLines).map(
     (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
   );
@@ -598,22 +509,7 @@ async function handleAdminConfirmRemove(interaction: ButtonInteraction): Promise
     .setFooter({ text: removed ? `✅ Removed "${trackTitle}" • ${tracks.length} tracks` : `❌ Could not remove • ${tracks.length} tracks` })
     .setTimestamp();
 
-  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-
-  if (tracks.length > 0) {
-    const maxOptions = 25;
-    const options = tracks.slice(0, maxOptions).map((t: any) =>
-      new StringSelectMenuOptionBuilder()
-        .setLabel((t.title || t.trackId).slice(0, 100))
-        .setValue(t.trackId)
-        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
-    );
-    const select = new StringSelectMenuBuilder()
-      .setCustomId('admin_remove_select')
-      .setPlaceholder('Select track to remove...')
-      .addOptions(options);
-    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
-  }
+  const components = buildAdminRemoveSelectRows(tracks);
 
   await interaction.editReply({ embeds: [embed], components: components.length > 0 ? components : [] });
 
@@ -633,7 +529,7 @@ async function handleAdminCancelRemove(interaction: ButtonInteraction): Promise<
   const queueManager = client.queueManager;
   const tracks = await queueManager.getAllTracks();
 
-  const maxListLines = 20;
+  const maxListLines = 50;
   const listLines = tracks.slice(0, maxListLines).map(
     (t: any, i: number) => `${i + 1}. ${t.title}${t.artist ? ` — ${t.artist}` : ''}`
   );
@@ -648,24 +544,92 @@ async function handleAdminCancelRemove(interaction: ButtonInteraction): Promise<
     .setFooter({ text: `${tracks.length} tracks • Select below to remove` })
     .setTimestamp();
 
-  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-
-  if (tracks.length > 0) {
-    const maxOptions = 25;
-    const options = tracks.slice(0, maxOptions).map((t: any) =>
-      new StringSelectMenuOptionBuilder()
-        .setLabel((t.title || t.trackId).slice(0, 100))
-        .setValue(t.trackId)
-        .setDescription((t.artist || 'PBZ Music').slice(0, 100))
-    );
-    const select = new StringSelectMenuBuilder()
-      .setCustomId('admin_remove_select')
-      .setPlaceholder('Select track to remove...')
-      .addOptions(options);
-    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
-  }
+  const components = buildAdminRemoveSelectRows(tracks);
 
   await interaction.editReply({ embeds: [embed], components: components.length > 0 ? components : [] });
+}
+
+/**
+ * Check if user has Administrator permission (for admin-only controls)
+ */
+function isAdmin(interaction: ButtonInteraction): boolean {
+  const perms = interaction.memberPermissions ?? (interaction.member as GuildMember)?.permissions;
+  return perms?.has(PermissionFlagsBits.Administrator) ?? false;
+}
+
+/**
+ * Handle admin Force Skip (admin only)
+ */
+async function handleAdminForceSkip(interaction: ButtonInteraction): Promise<void> {
+  if (!isAdmin(interaction)) {
+    await interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+    return;
+  }
+  await interaction.deferReply({ ephemeral: true });
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.editReply({ content: '❌ This can only be used in a server.' });
+    return;
+  }
+  const player = client.queueManager.getPlayer(guildId);
+  if (!player) {
+    await interaction.editReply({ content: '❌ No active player. Connect to voice first.' });
+    return;
+  }
+  const skipped = player.skip();
+  if (skipped) {
+    const { musicLogService } = await import('../services/MusicLogService');
+    musicLogService.addLog('⏭️ Admin force skipped current track.', 'info');
+    await interaction.editReply({ content: '✅ Force skipped current track.' });
+  } else {
+    await interaction.editReply({ content: 'ℹ️ Nothing playing to skip.' });
+  }
+}
+
+/**
+ * Handle admin Pause (admin only)
+ */
+async function handleAdminPause(interaction: ButtonInteraction): Promise<void> {
+  if (!isAdmin(interaction)) {
+    await interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+    return;
+  }
+  await interaction.deferReply({ ephemeral: true });
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.editReply({ content: '❌ This can only be used in a server.' });
+    return;
+  }
+  const player = client.queueManager.getPlayer(guildId);
+  if (!player) {
+    await interaction.editReply({ content: '❌ No active player. Connect to voice first.' });
+    return;
+  }
+  const paused = player.pause();
+  await interaction.editReply({ content: paused ? '✅ Playback paused.' : 'ℹ️ Not playing or already paused.' });
+}
+
+/**
+ * Handle admin Resume (admin only)
+ */
+async function handleAdminResume(interaction: ButtonInteraction): Promise<void> {
+  if (!isAdmin(interaction)) {
+    await interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+    return;
+  }
+  await interaction.deferReply({ ephemeral: true });
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.editReply({ content: '❌ This can only be used in a server.' });
+    return;
+  }
+  const player = client.queueManager.getPlayer(guildId);
+  if (!player) {
+    await interaction.editReply({ content: '❌ No active player. Connect to voice first.' });
+    return;
+  }
+  const resumed = player.resume();
+  await interaction.editReply({ content: resumed ? '✅ Playback resumed.' : 'ℹ️ Not paused or already playing.' });
 }
 
 // ============================================

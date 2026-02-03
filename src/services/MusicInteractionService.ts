@@ -50,6 +50,7 @@ export class MusicInteractionService {
 
     const controlChannelId = process.env.PHANTOM_MELODY_CONTROL_CHANNEL_ID || process.env.PHANTOM_MELODY_TEXT_CHANNEL_ID;
     const playlistControlAdminId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
+    const adminControlChannelId = process.env.ADMIN_CONTROL_CHANNEL_ID;
 
     if (!controlChannelId) {
       console.warn('[MusicInteractionService] Channel IDs not set, skipping button setup.');
@@ -65,6 +66,11 @@ export class MusicInteractionService {
     // Setup Playlist Control Admin channel (admin-only add songs)
     if (playlistControlAdminId) {
       await this.ensureAdminPlaylistControl(client, playlistControlAdminId);
+    }
+
+    // Admin-only control channel (Force Skip / Pause / Resume for emergency or testing)
+    if (adminControlChannelId) {
+      await this.ensureAdminControlButtons(client, adminControlChannelId);
     }
   }
 
@@ -195,38 +201,44 @@ export class MusicInteractionService {
       const tracks = await this.queueManager.getAllTracks();
       const trackCount = tracks.length;
 
+      const hasTracks = trackCount > 0;
       const embed = new EmbedBuilder()
         .setColor(0x9B59B6)
         .setTitle(`${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
         .setDescription(
           `${MAIN_PLAYLIST.description}\n\n` +
           `**${trackCount}** tracks in playlist\n\n` +
-          '📋 Select songs from the menu below to add to queue\n' +
-          `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks`
+          (hasTracks
+            ? '📋 Select songs from the menu below to add to queue\n' + `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks`
+            : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
         )
         .setFooter({
           text: '🗡️ Phantom Blade Zero Melody',
         })
         .setTimestamp();
 
-      // Create select menu for songs (up to 25 options)
+      // Discord จำกัด 25 ตัวเลือกต่อเมนู — แบ่งเป็นหลายเมนู (สูงสุด 5 แถว = 125 เพลง)
       const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+      const OPTIONS_PER_MENU = 25;
+      const MAX_MENUS = 5;
 
-      if (tracks.length > 0) {
-        const maxOptions = 25;
-        const options = tracks.slice(0, maxOptions).map((track: any) =>
-          new StringSelectMenuOptionBuilder()
-            .setLabel((track.title || track.trackId).slice(0, 100))
-            .setDescription((track.artist || 'PBZ Music').slice(0, 100))
-            .setValue(track.trackId)
-        );
-
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId('song_select')
-          .setPlaceholder('Select a song to add to queue...')
-          .addOptions(options);
-
-        components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
+      if (hasTracks) {
+        for (let i = 0; i < Math.min(MAX_MENUS, Math.ceil(tracks.length / OPTIONS_PER_MENU)); i++) {
+          const chunk = tracks.slice(i * OPTIONS_PER_MENU, (i + 1) * OPTIONS_PER_MENU);
+          const options = chunk.map((track: any) =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel((track.title || track.trackId).slice(0, 100))
+              .setDescription((track.artist || 'PBZ Music').slice(0, 100))
+              .setValue(track.trackId)
+          );
+          const start = i * OPTIONS_PER_MENU + 1;
+          const end = Math.min((i + 1) * OPTIONS_PER_MENU, tracks.length);
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`song_select_${i}`)
+            .setPlaceholder(`Songs ${start}–${end} — Select to add to queue...`)
+            .addOptions(options);
+          components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
+        }
       }
 
       // Try to find existing message
@@ -250,7 +262,7 @@ export class MusicInteractionService {
           if (msg.author.id === client.user!.id) {
             const hasSelectMenu = msg.components.some((row: any) =>
               row.components.some((component: any) =>
-                component.type === 3 && component.customId === 'song_select'
+                component.type === 3 && (component.customId === 'song_select' || (component.customId && component.customId.startsWith('song_select_')))
               )
             );
             if (hasSelectMenu) {
@@ -314,25 +326,21 @@ export class MusicInteractionService {
         .setTitle(`🔧 Admin: ${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.name}`)
         .setDescription(
           `**${trackCount}** tracks in playlist\n\n` +
-          '**Admin Commands:**\n' +
-          '• **Add Song** — Add song via YouTube URL\n' +
-          '• **View & Remove** — View track list and remove\n\n' +
+          '• **View & Remove** — View playlist and remove tracks\n\n' +
+          (trackCount === 0
+            ? '💡 No tracks yet — Add .wav files to `music/pbz/` and run `npm run sync-pbz`\n\n'
+            : '') +
           '⚠️ Admin only'
         )
         .setFooter({ text: 'Phantom Blade Zero Melody - Admin Panel' })
         .setTimestamp();
 
-      const addBtn = new ButtonBuilder()
-        .setCustomId('admin_add_song')
-        .setLabel('Add Song')
-        .setStyle(ButtonStyle.Success)
-        .setEmoji('➕');
       const viewBtn = new ButtonBuilder()
         .setCustomId('admin_view_songs')
         .setLabel('View & Remove')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('📋');
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(addBtn, viewBtn);
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(viewBtn);
 
       const storageKey = `${channelId}_admin`;
       let message: Message | null = null;
@@ -348,7 +356,7 @@ export class MusicInteractionService {
       if (!message) {
         const messages = await textChannel.messages.fetch({ limit: 50 });
         for (const [id, msg] of messages) {
-          if (msg.author.id === client.user!.id && msg.components.some((row: any) => row.components.some((c: any) => c.customId === 'admin_add_song'))) {
+          if (msg.author.id === client.user!.id && msg.components.some((row: any) => row.components.some((c: any) => c.customId === 'admin_view_songs'))) {
             message = msg;
             this.buttonMessageIds.set(storageKey, id);
             break;
@@ -376,6 +384,91 @@ export class MusicInteractionService {
       console.log(`[MusicInteractionService] ✓ Admin playlist control message updated`);
     } catch (error) {
       console.error(`[MusicInteractionService] ❌ Critical error setting up admin playlist control:`, error);
+    }
+  }
+
+  /**
+   * Setup Admin Control channel (admin-only: Force Skip, Pause, Resume)
+   */
+  private async ensureAdminControlButtons(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        console.error(`[MusicInteractionService] ❌ Admin control channel ${channelId} not found.`);
+        return;
+      }
+
+      const textChannel = channel as TextChannel;
+      const botMember = await textChannel.guild.members.fetch(client.user!.id);
+      const permissions = textChannel.permissionsFor(botMember);
+      if (!permissions?.has('SendMessages') || !permissions?.has('ViewChannel')) {
+        console.error(`[MusicInteractionService] ❌ Bot lacks permissions in admin control channel ${channelId}.`);
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0xED4245)
+        .setTitle('🔧 Admin Controls')
+        .setDescription(
+          '**Emergency / testing only** — Admin only.\n\n' +
+          '• **Force Skip** — Skip current track immediately\n' +
+          '• **Pause** — Pause playback\n' +
+          '• **Resume** — Resume playback'
+        )
+        .setFooter({ text: 'Admin only • Phantom Melody' })
+        .setTimestamp();
+
+      const skipBtn = new ButtonBuilder()
+        .setCustomId('admin_force_skip')
+        .setLabel('Force Skip')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('⏭️');
+      const pauseBtn = new ButtonBuilder()
+        .setCustomId('admin_pause')
+        .setLabel('Pause')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('⏸️');
+      const resumeBtn = new ButtonBuilder()
+        .setCustomId('admin_resume')
+        .setLabel('Resume')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('▶️');
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(skipBtn, pauseBtn, resumeBtn);
+
+      const storageKey = `${channelId}_admin_control`;
+      let message: Message | null = null;
+      const storedId = this.buttonMessageIds.get(storageKey);
+      if (storedId) {
+        try {
+          const msg = await textChannel.messages.fetch(storedId);
+          if (msg) message = msg;
+        } catch {
+          this.buttonMessageIds.delete(storageKey);
+        }
+      }
+      if (!message) {
+        const messages = await textChannel.messages.fetch({ limit: 30 });
+        for (const [, msg] of messages) {
+          if (msg.author.id === client.user!.id && msg.components.some((r: any) => r.components.some((c: any) => c.customId === 'admin_force_skip'))) {
+            message = msg;
+            this.buttonMessageIds.set(storageKey, msg.id);
+            break;
+          }
+        }
+      }
+      if (message) {
+        await message.edit({ embeds: [embed], components: [row] }).catch(() => {
+          this.buttonMessageIds.delete(storageKey);
+          message = null;
+        });
+      }
+      if (!message) {
+        const newMessage = await textChannel.send({ embeds: [embed], components: [row] });
+        this.buttonMessageIds.set(storageKey, newMessage.id);
+      }
+      console.log(`[MusicInteractionService] ✓ Admin control message updated`);
+    } catch (error) {
+      console.error(`[MusicInteractionService] ❌ Error setting up admin control:`, error);
     }
   }
 

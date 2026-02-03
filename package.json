@@ -10,7 +10,10 @@
     "watch": "tsc --watch",
     "deploy": "ts-node src/deploy-commands.ts",
     "deploy:prod": "node dist/deploy-commands.js",
-    "clear-commands": "ts-node src/clear-commands.ts"
+    "clear-commands": "ts-node src/clear-commands.ts",
+    "seed-pbz-bgm": "node scripts/seed-pbz-bgm.js",
+    "sync-pbz": "node scripts/sync-pbz-from-files.js",
+    "sync-pbz:host": "MONGO_URI=mongodb://localhost:27017/honorbot node scripts/sync-pbz-from-files.js"
   },
   "keywords": [
     "discord",

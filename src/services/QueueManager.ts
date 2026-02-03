@@ -46,30 +46,21 @@ export class QueueManager {
 
   /**
    * Get all tracks from the main playlist (Phantom Blade Zero Melody)
+   * รวมทั้งแทร็กจาก YouTube และ local (WAV) ตาม trackIds ในเพลย์ลิสต์
    */
   async getAllTracks(): Promise<ITrack[]> {
     if (!isDBConnected()) return [];
 
     try {
-      // Get all tracks with valid YouTube URLs
-      const tracks = await Track.find({
-        $and: [
-          { youtubeUrl: { $exists: true } },
-          { youtubeUrl: { $ne: null } },
-          { youtubeUrl: { $ne: '' } },
-          { youtubeUrl: { $ne: 'undefined' } },
-          { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
-        ]
-      }).sort({ title: 1 });
-
-      // Double-check and filter tracks with valid URLs
-      return tracks.filter(track =>
-        track.youtubeUrl &&
-        track.youtubeUrl !== 'undefined' &&
-        track.youtubeUrl !== 'null' &&
-        track.youtubeUrl.trim() !== '' &&
-        /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)
-      );
+      const playlist = await Playlist.findOne({ name: MAIN_PLAYLIST.name });
+      if (!playlist || !playlist.trackIds?.length) {
+        return [];
+      }
+      const trackIds = playlist.trackIds;
+      const tracks = await Track.find({ trackId: { $in: trackIds } });
+      const byId = new Map(tracks.map((t) => [t.trackId, t]));
+      const result = trackIds.map((id) => byId.get(id)).filter((t) => t != null);
+      return result as ITrack[];
     } catch (error) {
       console.error('[QueueManager] Error fetching tracks:', error);
       return [];
@@ -77,34 +68,15 @@ export class QueueManager {
   }
 
   /**
-   * Search tracks by title or artist
+   * Search tracks by title or artist (ภายในเพลย์ลิสต์หลัก)
    */
   async searchTracks(query: string): Promise<ITrack[]> {
     if (!isDBConnected()) return [];
 
     try {
-      const regex = new RegExp(query, 'i');
-      const tracks = await Track.find({
-        $or: [
-          { title: regex },
-          { artist: regex },
-        ],
-        $and: [
-          { youtubeUrl: { $exists: true } },
-          { youtubeUrl: { $ne: null } },
-          { youtubeUrl: { $ne: '' } },
-          { youtubeUrl: { $ne: 'undefined' } },
-          { youtubeUrl: { $regex: /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/ } }
-        ],
-      }).limit(25);
-
-      return tracks.filter(track =>
-        track.youtubeUrl &&
-        track.youtubeUrl !== 'undefined' &&
-        track.youtubeUrl !== 'null' &&
-        track.youtubeUrl.trim() !== '' &&
-        /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(track.youtubeUrl)
-      );
+      const all = await this.getAllTracks();
+      const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      return all.filter((t) => regex.test(t.title) || regex.test(t.artist || '')).slice(0, 25);
     } catch (error) {
       console.error('[QueueManager] Error searching tracks:', error);
       return [];

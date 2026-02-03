@@ -6,6 +6,7 @@ This directory contains local MP3 files for the Phantom Melody bot.
 
 ```
 music/
+├── pbz/          # Phantom Blade Zero BGM (.wav – hardcoded ใน config, ไม่ push ขึ้น git)
 ├── battle/       # Battle/action music
 ├── story/        # Story/narrative music
 ├── exploration/  # Exploration/adventure music
@@ -30,8 +31,8 @@ Files should be named using the track ID:
 
 ## Audio Requirements
 
-- Format: MP3
-- Bitrate: 128-320 kbps recommended
+- Format: MP3 หรือ WAV (สำหรับ PBZ BGM ใช้ `music/pbz/` + config `config/pbz-bgm-tracks.js` แล้วรัน `npm run seed-pbz-bgm`)
+- Bitrate: 128-320 kbps recommended (MP3)
 - Sample Rate: 44.1 kHz or 48 kHz
 
 ## Copyright Notice

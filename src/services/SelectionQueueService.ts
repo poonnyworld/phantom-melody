@@ -59,15 +59,19 @@ class SelectionQueueService {
   }
 
   /**
-   * Check if a user can select a song (is it their turn?)
+   * Check if a user can select a song (must be their turn — join queue first, one song per turn).
    */
   public canSelect(userId: string): { canSelect: boolean; position: number; message: string } {
-    // If no one is selecting, anyone can select
+    // No one is selecting — user must join the queue first to get a turn
     if (!this.state.currentSelector) {
-      return { canSelect: true, position: 0, message: '' };
+      return {
+        canSelect: false,
+        position: 0,
+        message: 'You must **Join Queue** first to get your turn. One song per turn; join again to add more.',
+      };
     }
 
-    // If current selector is this user
+    // If current selector is this user, they can select one song
     if (this.state.currentSelector.userId === userId) {
       return { canSelect: true, position: 0, message: '' };
     }
@@ -75,11 +79,10 @@ class SelectionQueueService {
     // Check position in queue
     const position = this.state.waitingQueue.findIndex(q => q.userId === userId);
     if (position === -1) {
-      // Not in queue
       return {
         canSelect: false,
         position: this.state.waitingQueue.length + 1,
-        message: `It's **${this.state.currentSelector.username}**'s turn to select. Join the queue to wait for your turn!`,
+        message: `It's **${this.state.currentSelector.username}**'s turn. Join the queue to wait for your turn!`,
       };
     }
 
@@ -320,8 +323,8 @@ class SelectionQueueService {
     if (!currentSelector) {
       embed.setDescription(
         '**No one is currently selecting**\n\n' +
-        'Click **Join Queue** below to start selecting a song!\n' +
-        'You\'ll have **2 minutes** to pick a song from the playlist.'
+        'Click **Join Queue** below to get your turn.\n' +
+        'You get **one song per turn** (2 min). Want to add more? Join the queue again after your turn.'
       );
     } else {
       const remainingSeconds = Math.ceil(remainingTime / 1000);
@@ -356,7 +359,7 @@ class SelectionQueueService {
     }
 
     embed.setFooter({
-      text: `${waitingQueue.length} user(s) in queue • 2 min per turn`,
+      text: `${waitingQueue.length} user(s) in queue • 2 min per turn • One song per turn`,
     });
 
     return embed;
