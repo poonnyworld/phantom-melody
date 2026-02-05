@@ -2,6 +2,7 @@ import { Events, VoiceState } from 'discord.js';
 import { User } from '../models/User';
 import { ListeningHistory } from '../models/ListeningHistory';
 import { isDBConnected } from '../utils/connectDB';
+import { client } from '../index';
 
 export const name = Events.VoiceStateUpdate;
 export const once = false;
@@ -10,12 +11,17 @@ export const once = false;
 const voiceTimestamps = new Map<string, { joinedAt: Date; trackId?: string }>();
 
 export async function execute(oldState: VoiceState, newState: VoiceState) {
+  const phantomRadioVoiceChannel = process.env.PHANTOM_RADIO_VOICE_CHANNEL_ID;
+  if (phantomRadioVoiceChannel && !oldState.channelId && newState.channelId === phantomRadioVoiceChannel) {
+    // User joined the Phantom Radio voice channel — touch activity for idle disconnect
+    client.queueManager?.touchActivityForGuild(newState.guild.id);
+  }
+
   if (!isDBConnected()) return;
 
   const userId = newState.member?.user.id;
   if (!userId || newState.member?.user.bot) return;
 
-  const phantomRadioVoiceChannel = process.env.PHANTOM_RADIO_VOICE_CHANNEL_ID;
   if (!phantomRadioVoiceChannel) return;
 
   // User joined the Phantom Radio voice channel

@@ -44,6 +44,23 @@ export class QueueManager {
     }
   }
 
+  /** Update last activity for a guild (e.g. when someone joins voice). Used for idle disconnect. */
+  touchActivityForGuild(guildId: string): void {
+    const player = this.players.get(guildId);
+    if (player) player.touchActivity();
+  }
+
+  /** Disconnect from voice in any guild that has been idle for at least idleMs. */
+  runIdleDisconnectCheck(idleMs: number): void {
+    for (const [guildId, player] of this.players.entries()) {
+      if (!player.isConnected()) continue;
+      if (player.isIdleLongerThan(idleMs)) {
+        console.log(`[QueueManager] Disconnecting from guild ${guildId} after ${idleMs / 60000} min idle`);
+        this.destroyPlayer(guildId);
+      }
+    }
+  }
+
   /**
    * Get all tracks from the main playlist (name in DB: Phantom Blade Zero Radio; display: Phantom Radio)
    * รวมทั้งแทร็กจาก YouTube และ local (WAV) ตาม trackIds ในเพลย์ลิสต์

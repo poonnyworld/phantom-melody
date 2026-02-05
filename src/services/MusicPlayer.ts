@@ -49,6 +49,9 @@ export class MusicPlayer {
   // Skip vote tracking
   private skipVotes: Set<string> = new Set();
 
+  // Idle disconnect: last time there was activity (play, skip, pause, someone in channel, etc.)
+  private lastActivityAt: number = 0;
+
   constructor(client: Client, guildId: string) {
     this.client = client;
     this.guildId = guildId;
@@ -87,6 +90,7 @@ export class MusicPlayer {
     });
 
     this.audioPlayer.on(AudioPlayerStatus.Playing, () => {
+      this.touchActivity();
       if (this.pausedAt > 0) {
         // Resuming from pause
         this.totalPausedTime += Date.now() - this.pausedAt;
@@ -129,10 +133,12 @@ export class MusicPlayer {
         } catch (error) {
           // Already subscribed, ignore
         }
+        this.touchActivity();
         console.log(`[MusicPlayer] Reusing existing connection to voice channel: ${voiceChannel.name}`);
         return true;
       }
 
+      this.touchActivity();
       this.connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: voiceChannel.guild.id,
@@ -147,6 +153,7 @@ export class MusicPlayer {
       // Subscribe the connection to the audio player
       this.connection.subscribe(this.audioPlayer);
       
+      this.touchActivity();
       console.log(`[MusicPlayer] Connected to voice channel: ${voiceChannel.name}`);
       return true;
     } catch (error: any) {
@@ -195,6 +202,17 @@ export class MusicPlayer {
     }
   }
 
+  /** Update last activity timestamp (used for idle disconnect). */
+  touchActivity(): void {
+    this.lastActivityAt = Date.now();
+  }
+
+  /** True if no activity for at least `idleMs` milliseconds. */
+  isIdleLongerThan(idleMs: number): boolean {
+    if (this.lastActivityAt === 0) return false;
+    return Date.now() - this.lastActivityAt >= idleMs;
+  }
+
   disconnect() {
     if (this.connection) {
       this.connection.destroy();
@@ -228,6 +246,7 @@ export class MusicPlayer {
       return false;
     }
 
+    this.touchActivity();
     const queueItem: QueueItem = { track, requestedBy, requestedByUsername, isPinned };
     
     if (isPinned) {
@@ -311,6 +330,7 @@ export class MusicPlayer {
 
   private async playTrack(item: QueueItem): Promise<void> {
     try {
+      this.touchActivity();
       this.isPlaying = true;
       this.currentTrack = item;
       this.trackStartTime = Date.now();
@@ -490,6 +510,7 @@ export class MusicPlayer {
 
   pause(): boolean {
     if (this.audioPlayer.state.status === AudioPlayerStatus.Playing) {
+      this.touchActivity();
       this.audioPlayer.pause();
       return true;
     }
@@ -498,6 +519,7 @@ export class MusicPlayer {
 
   resume(): boolean {
     if (this.audioPlayer.state.status === AudioPlayerStatus.Paused) {
+      this.touchActivity();
       this.audioPlayer.unpause();
       return true;
     }
@@ -506,6 +528,7 @@ export class MusicPlayer {
 
   skip(): boolean {
     if (this.isPlaying) {
+      this.touchActivity();
       this.audioPlayer.stop();
       return true;
     }

@@ -1,5 +1,6 @@
 import { Client, Collection, GatewayIntentBits, Events, Interaction } from 'discord.js';
 import { connectDB, isDBConnected } from './utils/connectDB';
+import { IDLE_DISCONNECT_MINUTES } from './config/playlists';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import dotenv from 'dotenv';
@@ -164,6 +165,14 @@ client.once(Events.ClientReady, async (readyClient) => {
     await resetMonthlyStats();
     console.log('[Cron] Monthly stats reset completed');
   });
+
+  // Idle disconnect: leave voice after IDLE_DISCONNECT_MINUTES of no activity
+  const idleMs = IDLE_DISCONNECT_MINUTES * 60 * 1000;
+  setInterval(() => {
+    if (readyClient.isReady()) {
+      readyClient.queueManager.runIdleDisconnectCheck(idleMs);
+    }
+  }, 60 * 1000); // check every 1 minute
 });
 
 // Reset monthly stats for leaderboards

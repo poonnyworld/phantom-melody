@@ -24,6 +24,9 @@ export const DEFAULT_PLAYLISTS: PlaylistConfig[] = [MAIN_PLAYLIST];
 export const MAX_QUEUE_SIZE = 20;
 export const SKIP_VOTES_REQUIRED = 5;
 
+// Idle disconnect: leave voice channel after this many minutes of no activity
+export const IDLE_DISCONNECT_MINUTES = parseInt(process.env.IDLE_DISCONNECT_MINUTES || '20', 10);
+
 // Honor point costs (kept for future use)
 export const HONOR_COSTS = {
   PIN_TRACK: parseInt(process.env.PIN_COST || '5'),
