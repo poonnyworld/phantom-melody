@@ -39,6 +39,16 @@ _Activity logs for playlist changes and playback events_
 ![Admin Controls](./docs/images/admin-controls.png)
 _Force Skip, Play and pause song by admin_
 
+## Recent changes (summary)
+
+- **Channel layout**
+  - **Music Player channel** — One message only: Now Playing (or idle) with **Vote Skip** and **View Queue** buttons below it. No separate control embeds.
+  - **Song Selection channel** — Playlist display (multi-page) moved here; same channel has Join Queue + Select Song.
+  - Vote Skip and Music Player are no longer separate channels; both controls live in the single Music Player channel message.
+- **Queue rules** — Queue max **20 songs**; each user max **5 songs** (when one of your songs finishes, you get a slot back).
+- **Display** — All user-facing text is in English (global bot).
+- **Invite & permissions** — See [Inviting the bot](#inviting-the-bot) and [Bot & channel permissions](#bot--channel-permissions) below for OAuth2 scopes and required permissions.
+
 ## Features
 
 ### 🎵 Single Playlist System
@@ -74,14 +84,12 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 
 ### User channels
 
-| Channel (example name)               | Env variable                              | Purpose                                                                                            |
-| ------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `#phantom-radio-vote-skip`           | `PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID`      | **Vote Skip** — Embed + Vote Skip button only (skip when 5 votes are reached)                      |
-| `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Now Playing + View Queue** — Now Playing (title, progress bar, upcoming queue) and View Queue    |
-| `#phantom-radio-playlist`            | `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | **Full playlist** — Multi-page embed (8 tracks per page) with Previous / Next buttons              |
-| `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → get your turn → Select Song (ephemeral), one song/turn |
-| `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)          |
-| Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                    |
+| Channel (example name)               | Env variable                              | Purpose                                                                                                                                 |
+| ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Vote Skip + View Queue + Now Playing** — Vote Skip button, Now Playing (progress, queue), View Queue (combined in one channel)        |
+| `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Playlist + Join queue & select song** — Full playlist (multi-page), Join Queue → Select Song when it's your turn (up to 5 songs/user) |
+| `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)                                               |
+| Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                                                         |
 
 ### Admin channels
 
@@ -99,26 +107,19 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 
 ## User Interface
 
-### Vote Skip channel (`#phantom-radio-vote-skip`)
+### Music Player channel (`#phantom-radio-music-player`) — single message
 
-- Embed "♫ Music Player Controls" + **Vote Skip** button
-- Current song skips when 5 votes are reached
-
-### Music Player channel (`#phantom-radio-music-player`)
-
-- **Now Playing** — Track title, artist, progress bar, time, requester, upcoming queue (~5 songs)
-- **View Queue** button — Shows full queue (ephemeral, visible only to the user who clicked)
+- **One message only**: the Now Playing embed (or idle “No music currently playing”) with **Vote Skip** and **View Queue** buttons directly below it.
+- **Vote Skip** — Skip when 5 votes are reached.
+- **View Queue** — Opens full queue (ephemeral).
+- Queue limits: **20 songs max** total, **5 songs per user** (when one of your songs finishes, you get a slot back).
 
 ### Song Selection channel (`#phantom-radio-song-selection`)
 
-1. **Track list embed** — Track count + instructions to Join queue then click Select Song
-2. **Song Selection Queue** — Current selector, time remaining, waiting list, Join Queue / Leave / Select Song buttons
-3. When it's your turn, you get an ephemeral message with song selection dropdowns
-
-### Playlist channel (`#phantom-radio-playlist`)
-
-- Multi-page embed (8 tracks per page)
-- **Previous** / **Next** buttons to navigate pages
+1. **Track list embed** — Track count + instructions (Join queue → Select Song when it's your turn)
+2. **Full playlist** — Multi-page embed (8 tracks per page), Previous / Next buttons
+3. **Song Selection Queue** — Current selector, time remaining, waiting list, Join Queue / Leave / Select Song buttons
+4. When it's your turn, you get an ephemeral message with song selection dropdowns (up to 5 songs per user in queue)
 
 ## YouTube Playback
 
@@ -141,6 +142,36 @@ This approach avoids common issues with JavaScript YouTube libraries that break 
 - Discord Bot Token
 - FFmpeg (for audio processing)
 - **yt-dlp** (Docker image includes this)
+
+### Inviting the bot
+
+1. Open [Discord Developer Portal](https://discord.com/developers/applications) → your application (or create one) → **OAuth2** → **URL Generator**.
+2. **Scopes** (tick these):
+   - `bot` — Bot user and its permissions.
+   - `applications.commands` — Register slash commands in the server.
+3. **Bot permissions** (tick these, or use “Administrator” for testing only):
+   - **View Channels** — See channels.
+   - **Send Messages** — Send embeds and messages.
+   - **Embed Links** — Rich embeds (Now Playing, queue, etc.).
+   - **Read Message History** — Read channel history (for finding/editing its own messages).
+   - **Manage Messages** — Edit/delete its own messages (e.g. updating Now Playing).
+   - **Connect** — Join the voice channel.
+   - **Speak** — Play audio in the voice channel.
+4. Copy the generated URL, open it in a browser, choose your server, and complete the invite.
+
+### Bot & channel permissions
+
+| Who            | Where                    | Permissions needed |
+|----------------|--------------------------|--------------------|
+| **Bot**        | All bot channels         | View Channel, Send Messages, Embed Links, Read Message History, Manage Messages (so it can edit the single Now Playing message). |
+| **Bot**        | Voice channel            | View Channel, Connect, Speak. |
+| **Bot**        | Server (for slash commands) | Use Application Commands (granted by invite with `applications.commands`). |
+| **Users**      | Music Player channel     | View Channel, Read Message History (to see the message and use Vote Skip / View Queue buttons). |
+| **Users**      | Song Selection channel   | View Channel, Read Message History (to use Join Queue, Select Song, playlist pages). |
+| **Users**      | Voice channel            | View Channel, Connect (to listen). |
+| **Admins**     | Admin channels           | View Channel, Read Message History; bot needs Send Messages + Embed Links there. Admin-only actions (Force Skip, Pause, Remove tracks) require the user to have **Administrator** (or you can change the code to use a specific role). |
+
+Ensure the bot role is **above** the voice channel’s permission overwrites if you restrict access (so the bot can always Connect + Speak).
 
 ### Installation
 
@@ -253,13 +284,11 @@ If you change display text (e.g. placeholders, messages) or add new buttons, **r
 | `CLIENT_ID`                               | Discord application client ID                                  |
 | `GUILD_ID`                                | Server (guild) ID for command deployment                       |
 | `MONGO_URI`                               | MongoDB connection string                                      |
-| **User Channels**                         |                                                                |
-| `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                               |
-| `PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID`      | Vote Skip only (embed + Vote Skip button)                      |
-| `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Now Playing display + View Queue button                        |
-| `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | Full playlist (multi-page embed, Prev/Next)                    |
-| `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (one song per turn)                   |
-| `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)             |
+| **User Channels**                         |                                                                 |
+| `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                                |
+| `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Vote Skip + Now Playing + View Queue (combined in one channel)  |
+| `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Full playlist (multi-page) + Join queue + Select Song (5/user)   |
+| `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)              |
 | **Admin Channels**                        |                                                                |
 | `ADMIN_LOGS_CHANNEL_ID`                   | Admin logs - playlist changes, queue, playback events          |
 | `ADMIN_PLAYLIST_CHANNEL_ID`               | Admin panel for Add/Remove songs                               |

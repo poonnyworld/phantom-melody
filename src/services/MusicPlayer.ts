@@ -17,7 +17,7 @@ import { getAudioStream, extractVideoId } from './YouTubeService';
 import { Track, ITrack } from '../models/Track';
 import { isDBConnected } from '../utils/connectDB';
 import { setUserCurrentTrack } from '../events/voiceStateUpdate';
-import { MAX_QUEUE_SIZE } from '../config/playlists';
+import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER } from '../config/playlists';
 import { musicLogService } from './MusicLogService';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -49,6 +49,9 @@ export class MusicPlayer {
   // Skip vote tracking
   private skipVotes: Set<string> = new Set();
 
+  // Per-user queue count (for max 5 songs per user; slot freed when their song finishes)
+  private userQueueCount: Map<string, number> = new Map();
+
   // Idle disconnect: last time there was activity (play, skip, pause, someone in channel, etc.)
   private lastActivityAt: number = 0;
 
@@ -67,6 +70,11 @@ export class MusicPlayer {
 
   private setupPlayerListeners() {
     this.audioPlayer.on(AudioPlayerStatus.Idle, async () => {
+      // Free per-user slot when a requested track finishes
+      if (this.currentTrack?.requestedBy) {
+        const uid = this.currentTrack.requestedBy;
+        this.userQueueCount.set(uid, Math.max(0, (this.userQueueCount.get(uid) ?? 0) - 1));
+      }
       // Log track finished
       if (this.currentTrack) {
         const finishedTrack = this.currentTrack;
@@ -238,12 +246,18 @@ export class MusicPlayer {
 
   /**
    * Add a track to the queue
-   * @returns true if added, false if queue is full
+   * @returns true if added, false if queue is full or user at limit
    */
   async addToQueue(track: ITrack, requestedBy?: string, requestedByUsername?: string, isPinned: boolean = false): Promise<boolean> {
-    // Check queue limit (excluding pinned tracks)
-    if (!isPinned && this.queue.length >= MAX_QUEUE_SIZE) {
+    const totalSlots = (this.currentTrack ? 1 : 0) + this.queue.length + this.pinnedQueue.length;
+    if (!isPinned && totalSlots >= MAX_QUEUE_SIZE) {
       return false;
+    }
+    if (requestedBy !== undefined && !isPinned) {
+      const userCount = this.userQueueCount.get(requestedBy) ?? 0;
+      if (userCount >= MAX_QUEUES_PER_USER) {
+        return false;
+      }
     }
 
     this.touchActivity();
@@ -252,6 +266,9 @@ export class MusicPlayer {
     if (isPinned) {
       this.pinnedQueue.push(queueItem);
     } else {
+      if (requestedBy !== undefined) {
+        this.userQueueCount.set(requestedBy, (this.userQueueCount.get(requestedBy) ?? 0) + 1);
+      }
       this.queue.push(queueItem);
     }
 
@@ -581,9 +598,20 @@ export class MusicPlayer {
     return this.pinnedQueue.length + this.queue.length;
   }
 
+  /** Number of songs this user currently has in queue (including now playing). Max 5 per user. */
+  getQueuedCountForUser(userId: string): number {
+    let count = 0;
+    if (this.currentTrack?.requestedBy === userId) count++;
+    for (const item of this.queue) {
+      if (item.requestedBy === userId) count++;
+    }
+    return count;
+  }
+
   clearQueue(): void {
     this.queue = [];
     this.pinnedQueue = [];
+    this.userQueueCount.clear();
   }
 
   isConnected(): boolean {
@@ -626,6 +654,10 @@ export class MusicPlayer {
   removeFromQueue(trackId: string): boolean {
     const idx = this.queue.findIndex(item => item.track.trackId === trackId);
     if (idx !== -1) {
+      const item = this.queue[idx];
+      if (item.requestedBy) {
+        this.userQueueCount.set(item.requestedBy, Math.max(0, (this.userQueueCount.get(item.requestedBy) ?? 0) - 1));
+      }
       this.queue.splice(idx, 1);
       return true;
     }

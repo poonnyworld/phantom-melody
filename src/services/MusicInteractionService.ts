@@ -1,6 +1,6 @@
 import { Client, TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Message, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { QueueManager } from './QueueManager';
-import { MAIN_PLAYLIST, MAX_QUEUE_SIZE, SKIP_VOTES_REQUIRED } from '../config/playlists';
+import { MAIN_PLAYLIST, MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER, SKIP_VOTES_REQUIRED } from '../config/playlists';
 
 export class MusicInteractionService {
   private client: Client | null = null;
@@ -48,25 +48,19 @@ export class MusicInteractionService {
   private async setupAllButtons(client: Client): Promise<void> {
     console.log('[MusicInteractionService] Setting up all persistent buttons...');
 
-    const voteSkipChannelId = process.env.PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     const songSelectionChannelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     const musicPlayerChannelId = process.env.PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID;
-    const playlistChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     const manualChannelId = process.env.PHANTOM_RADIO_MANUAL_CHANNEL_ID;
     const playlistControlAdminId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     const adminControlChannelId = process.env.ADMIN_CONTROL_CHANNEL_ID;
 
-    if (voteSkipChannelId) {
-      await this.ensureVoteSkipMessage(client, voteSkipChannelId);
+    // Music player channel: single message (Now Playing + buttons) is managed by NowPlayingDisplayService
+    if (musicPlayerChannelId) {
+      await this.cleanupOldMusicPlayerMessages(client, musicPlayerChannelId);
     }
     if (songSelectionChannelId) {
       await this.ensureSongSelectionMessage(client, songSelectionChannelId);
-    }
-    if (musicPlayerChannelId) {
-      await this.ensureMusicPlayerMessage(client, musicPlayerChannelId);
-    }
-    if (playlistChannelId) {
-      await this.ensurePlaylistDisplayMessage(client, playlistChannelId);
+      await this.ensurePlaylistDisplayMessage(client, songSelectionChannelId);
     }
     if (manualChannelId) {
       await this.ensureManualMessage(client, manualChannelId);
@@ -76,6 +70,30 @@ export class MusicInteractionService {
     }
     if (adminControlChannelId) {
       await this.ensureAdminControlButtons(client, adminControlChannelId);
+    }
+  }
+
+  /**
+   * Remove old separate "Music Player Controls" and "View Queue" messages so only the single
+   * Now Playing message (with buttons below) remains in the music player channel.
+   */
+  private async cleanupOldMusicPlayerMessages(client: Client, channelId: string): Promise<void> {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) return;
+      const textChannel = channel as TextChannel;
+      const messages = await textChannel.messages.fetch({ limit: 20 });
+      for (const [, msg] of messages) {
+        if (msg.author.id !== client.user!.id || !msg.embeds[0]) continue;
+        const title = msg.embeds[0].title ?? '';
+        const isOldControls = title === '♫ Music Player Controls';
+        const isOldViewQueue = title === '📋 View Queue';
+        if (isOldControls || isOldViewQueue) {
+          await msg.delete().catch(() => {});
+        }
+      }
+    } catch (error) {
+      console.error('[MusicInteractionService] Error cleaning up music player channel:', error);
     }
   }
 
@@ -104,7 +122,7 @@ export class MusicInteractionService {
           '**Control the music player with the buttons below**\n\n' +
           `• **Vote Skip** — Vote to skip (requires ${SKIP_VOTES_REQUIRED} votes)`
         )
-        .setFooter({ text: `${MAIN_PLAYLIST.displayName} • Queue limit: ${MAX_QUEUE_SIZE} songs` })
+        .setFooter({ text: `${MAIN_PLAYLIST.displayName} • Queue: ${MAX_QUEUE_SIZE} max, ${MAX_QUEUES_PER_USER} per user` })
         .setTimestamp();
 
       const skipButton = new ButtonBuilder()
@@ -249,7 +267,7 @@ export class MusicInteractionService {
           `${MAIN_PLAYLIST.description}\n\n` +
           `**${trackCount}** tracks in playlist\n\n` +
           (hasTracks
-            ? '📋 **Join the queue** below to get your turn — then use **Select Song** to choose a track (message visible only to you).\n' + `💡 Queue supports up to ${MAX_QUEUE_SIZE} tracks • One song per turn`
+            ? `📋 **Join the queue** below to get your turn — then use **Select Song** to choose a track (ephemeral).\n💡 Queue: max ${MAX_QUEUE_SIZE} songs total • up to ${MAX_QUEUES_PER_USER} songs per user (slots free when your song finishes)`
             : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
         )
         .setFooter({
@@ -595,18 +613,14 @@ export class MusicInteractionService {
       const botMember = await textChannel.guild.members.fetch(client.user!.id);
       if (!textChannel.permissionsFor(botMember)?.has('SendMessages')) return;
 
-      const voteSkipId = process.env.PHANTOM_RADIO_VOTE_SKIP_CHANNEL_ID || '';
       const musicPlayerId = process.env.PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID || '';
-      const playlistId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || '';
       const songSelectionId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || '';
 
       const lines: string[] = [
         '**How to use Phantom Radio**',
         '',
-        voteSkipId ? `• **Vote to skip** — Go to <#${voteSkipId}> and use the Vote Skip button.` : '',
-        musicPlayerId ? `• **Now playing & queue** — See the current track and upcoming queue in <#${musicPlayerId}>.` : '',
-        playlistId ? `• **Full playlist** — Browse all tracks (multi-page) in <#${playlistId}>.` : '',
-        songSelectionId ? `• **Add songs to queue** — Go to <#${songSelectionId}>, click **Join Queue**, then **Select Song** when it's your turn (one song per turn).` : '',
+        musicPlayerId ? `• **Vote to skip & view queue** — Go to <#${musicPlayerId}> for Vote Skip, Now Playing, and View Queue.` : '',
+        songSelectionId ? `• **Full playlist & add songs** — Go to <#${songSelectionId}> to browse the playlist and add songs (Join Queue → Select Song when it's your turn; up to 5 songs per user, 20 max in queue).` : '',
       ].filter(Boolean);
 
       const embed = new EmbedBuilder()
@@ -660,14 +674,11 @@ export class MusicInteractionService {
     const songSelectionChannelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     if (songSelectionChannelId && this.client) {
       await this.ensureSongSelectionMessage(this.client, songSelectionChannelId);
+      await this.ensurePlaylistDisplayMessage(this.client, songSelectionChannelId);
     }
     const adminChannelId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     if (adminChannelId && this.client) {
       await this.ensureAdminPlaylistControl(this.client, adminChannelId);
-    }
-    const playlistChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
-    if (playlistChannelId && this.client) {
-      await this.ensurePlaylistDisplayMessage(this.client, playlistChannelId);
     }
   }
 

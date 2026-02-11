@@ -1,4 +1,4 @@
-import { Client, TextChannel, EmbedBuilder, Message, AttachmentBuilder } from 'discord.js';
+import { Client, TextChannel, EmbedBuilder, Message, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { formatDuration, MAIN_PLAYLIST } from '../config/playlists';
 import { QueueItem } from './MusicPlayer';
 
@@ -99,8 +99,9 @@ export class NowPlayingDisplayService {
         return;
       }
 
-      // Generate the embed
+      // Generate the embed and control buttons (Vote Skip + View Queue)
       const embed = await this.generateDisplayEmbed();
+      const components = this.buildControlButtons();
 
       // Find existing message
       let displayMessage: Message | null = null;
@@ -132,14 +133,14 @@ export class NowPlayingDisplayService {
 
       if (displayMessage) {
         try {
-          await displayMessage.edit({ embeds: [embed] });
+          await displayMessage.edit({ embeds: [embed], components });
         } catch (error) {
           console.error('[NowPlayingDisplayService] Error editing display message:', error);
           this.displayMessageId = null;
         }
       } else {
         try {
-          const newMessage = await textChannel.send({ embeds: [embed] });
+          const newMessage = await textChannel.send({ embeds: [embed], components });
           this.displayMessageId = newMessage.id;
           console.log(`[NowPlayingDisplayService] ✓ Created new display message: ${newMessage.id}`);
         } catch (error) {
@@ -291,6 +292,24 @@ export class NowPlayingDisplayService {
         text: `🎵 ${MAIN_PLAYLIST.displayName}`,
       })
       .setTimestamp();
+  }
+
+  /**
+   * Build Vote Skip + View Queue buttons (shown below the Now Playing message)
+   */
+  private buildControlButtons(): ActionRowBuilder<ButtonBuilder>[] {
+    const skipButton = new ButtonBuilder()
+      .setCustomId('music_vote_skip')
+      .setLabel('Vote Skip')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('⏭️');
+    const queueButton = new ButtonBuilder()
+      .setCustomId('music_queue')
+      .setLabel('View Queue')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('📋');
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(skipButton, queueButton);
+    return [row];
   }
 
   /**

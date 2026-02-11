@@ -324,7 +324,7 @@ class SelectionQueueService {
       embed.setDescription(
         '**No one is currently selecting**\n\n' +
         'Click **Join Queue** below to get your turn.\n' +
-        'You get **one song per turn** (2 min). Want to add more? Join the queue again after your turn.'
+        'You can add up to **5 songs** in the queue total; when one of yours finishes, you get a slot back. (2 min per turn to select.)'
       );
     } else {
       const remainingSeconds = Math.ceil(remainingTime / 1000);
@@ -359,7 +359,7 @@ class SelectionQueueService {
     }
 
     embed.setFooter({
-      text: `${waitingQueue.length} user(s) in queue • 2 min per turn • One song per turn`,
+      text: `${waitingQueue.length} user(s) in queue • 2 min per turn • Up to 5 songs per user in queue`,
     });
 
     return embed;

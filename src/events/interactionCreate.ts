@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import { client } from '../index';
 import { isDBConnected } from '../utils/connectDB';
-import { MAX_QUEUE_SIZE, SKIP_VOTES_REQUIRED, formatDuration } from '../config/playlists';
+import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER, SKIP_VOTES_REQUIRED, formatDuration } from '../config/playlists';
 
 export const name = Events.InteractionCreate;
 export const once = false;
@@ -149,13 +149,13 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
  * Handle select menu interactions
  */
 async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
-  // User song selection (song_select หรือ song_select_0, song_select_1, ...)
+  // User song selection (song_select, song_select_0, song_select_1, ...)
   if (interaction.customId.startsWith('song_select')) {
     await handleSongSelect(interaction);
     return;
   }
 
-  // Admin: Remove track selection (admin_remove_select หรือ admin_remove_select_0, ...)
+  // Admin: Remove track selection (admin_remove_select, admin_remove_select_0, ...)
   if (interaction.customId.startsWith('admin_remove_select')) {
     await handleAdminRemoveSelect(interaction);
     return;
@@ -215,10 +215,19 @@ async function handleSongSelect(interaction: StringSelectMenuInteraction): Promi
     interaction.channelId
   );
 
-  // Check queue limit
+  // Check per-user limit (5 songs per user; slot freed when your song finishes)
+  const userQueued = player.getQueuedCountForUser(interaction.user.id);
+  if (userQueued >= MAX_QUEUES_PER_USER) {
+    await interaction.editReply({
+      content: `❌ You already have ${MAX_QUEUES_PER_USER} songs in the queue. When one of yours finishes playing, you can add another.`,
+    });
+    return;
+  }
+
+  // Check total queue limit
   if (player.getQueueLength() >= MAX_QUEUE_SIZE) {
     await interaction.editReply({
-      content: `❌ Queue is full! (max ${MAX_QUEUE_SIZE} tracks)\nWait for current track to finish or Vote Skip`,
+      content: `❌ Queue is full (max ${MAX_QUEUE_SIZE} songs). Wait for a track to finish or use Vote Skip.`,
     });
     return;
   }
@@ -231,7 +240,7 @@ async function handleSongSelect(interaction: StringSelectMenuInteraction): Promi
 
   if (!added) {
     await interaction.editReply({
-      content: `❌ Could not add track. Queue may be full.`,
+      content: `❌ Could not add track. Queue may be full or you may have reached your limit (${MAX_QUEUES_PER_USER} songs per user).`,
     });
     return;
   }
@@ -392,7 +401,7 @@ async function handleQueueButton(interaction: ButtonInteraction): Promise<void> 
 const OPTIONS_PER_SELECT = 25;
 const MAX_SELECT_ROWS = 5;
 
-/** สร้างหลายแถว select menu สำหรับลบเพลง (Discord จำกัด 25 ตัวเลือกต่อเมนู) */
+/** Build multiple select menu rows for removing songs (Discord limit: 25 options per menu) */
 function buildAdminRemoveSelectRows(tracks: any[]): ActionRowBuilder<StringSelectMenuBuilder>[] {
   const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
   const menuCount = Math.min(MAX_SELECT_ROWS, Math.ceil(tracks.length / OPTIONS_PER_SELECT));
@@ -416,7 +425,7 @@ function buildAdminRemoveSelectRows(tracks: any[]): ActionRowBuilder<StringSelec
 }
 
 /**
- * Show admin view songs panel (แสดงเพลงในเพลย์ลิสต์)
+ * Show admin view songs panel (playlist tracks)
  */
 async function showAdminViewSongs(interaction: ButtonInteraction): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });

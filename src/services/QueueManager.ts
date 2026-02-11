@@ -63,7 +63,7 @@ export class QueueManager {
 
   /**
    * Get all tracks from the main playlist (name in DB: Phantom Blade Zero Radio; display: Phantom Radio)
-   * รวมทั้งแทร็กจาก YouTube และ local (WAV) ตาม trackIds ในเพลย์ลิสต์
+   * Includes YouTube and local (WAV) tracks per playlist trackIds.
    */
   async getAllTracks(): Promise<ITrack[]> {
     if (!isDBConnected()) return [];
@@ -85,7 +85,7 @@ export class QueueManager {
   }
 
   /**
-   * Search tracks by title or artist (ภายในเพลย์ลิสต์หลัก)
+   * Search tracks by title or artist (within main playlist)
    */
   async searchTracks(query: string): Promise<ITrack[]> {
     if (!isDBConnected()) return [];

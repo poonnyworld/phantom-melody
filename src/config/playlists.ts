@@ -22,6 +22,7 @@ export const DEFAULT_PLAYLISTS: PlaylistConfig[] = [MAIN_PLAYLIST];
 
 // Queue limits
 export const MAX_QUEUE_SIZE = 20;
+export const MAX_QUEUES_PER_USER = 5;
 export const SKIP_VOTES_REQUIRED = 5;
 
 // Idle disconnect: leave voice channel after this many minutes of no activity
