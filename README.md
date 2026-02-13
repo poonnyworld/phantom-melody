@@ -22,7 +22,7 @@ _Beautiful display with progress bar and upcoming queue_
 ### Vote Skip
 
 ![Vote Skip](./docs/images/vote-skip.png)
-_Vote skip song (require 5 person to skip)_
+_Vote skip song (requires 10 votes)_
 
 ### Admin Playlist Manager
 
@@ -41,19 +41,19 @@ _Force Skip, Play and pause song by admin_
 
 ## Recent changes (summary)
 
-- **Channel layout**
-  - **Music Player channel** — One message only: Now Playing (or idle) with **Vote Skip** and **View Queue** buttons below it. No separate control embeds.
-  - **Song Selection channel** — Playlist display (multi-page) moved here; same channel has Join Queue + Select Song.
-  - Vote Skip and Music Player are no longer separate channels; both controls live in the single Music Player channel message.
-- **Queue rules** — Queue max **20 songs**; each user max **5 songs** (when one of your songs finishes, you get a slot back).
+- **Multi-album playlist** — Music is organized in **7 album folders** under `music/` (e.g. `2014_Phantom-Blade-1`, `2025_Phantom-Blade-Zero-Soundtrack`). Supported formats: `.wav`, `.mp3`, `.ogg`. Sync with `docker-compose exec phantom-radio npm run sync-pbz` (see [BGM / Playlist sync](#bgm--playlist-sync-when-running-with-docker)).
+- **Song selection flow** — When it's your turn: **choose an album** first, then pick a song from that album (ephemeral). A **Back to albums** button lets you return to album selection without dismissing.
+- **Song Selection channel** — No public multi-page playlist embed; the track list is shown only in the ephemeral flow (album → song). Optional: set `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID` for a separate playlist display channel.
+- **Vote Skip** — Now requires **10 votes** (was 5).
+- **Channel layout** — Music Player: one message (Now Playing + Vote Skip + View Queue). Song Selection: Join Queue, Select Song, Leave; album/song choice is ephemeral.
+- **Queue rules** — Max **20 songs** total; **5 songs per user** (slot freed when your song finishes).
 - **Display** — All user-facing text is in English (global bot).
-- **Invite & permissions** — See [Inviting the bot](#inviting-the-bot) and [Bot & channel permissions](#bot--channel-permissions) below for OAuth2 scopes and required permissions.
 
 ## Features
 
-### 🎵 Single Playlist System
+### 🎵 Multi-Album Playlist
 
-All music is organized in the **Phantom Blade Zero Melody** playlist. Users can select songs from this playlist and add them to the shared queue.
+Music is stored in **7 album folders** under `music/` (see `music/README.md`). Users choose an album, then a song from that album, and add it to the shared queue. Supports `.wav`, `.mp3`, and `.ogg`.
 
 ### 🎯 Selection Queue System
 
@@ -68,7 +68,7 @@ A fair turn-based system for selecting songs:
 ### 🎧 Music Playback
 
 - **Now Playing Display** - Beautiful real-time display showing current track, progress bar, and upcoming queue
-- **Vote Skip** - Requires 5 votes to skip a song
+- **Vote Skip** - Requires 10 votes to skip a song
 - **View Queue** - See the current music queue (up to 20 songs)
 - Single voice channel enforcement for shared listening experience
 
@@ -87,7 +87,7 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 | Channel (example name)               | Env variable                              | Purpose                                                                                                                                 |
 | ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Vote Skip + View Queue + Now Playing** — Vote Skip button, Now Playing (progress, queue), View Queue (combined in one channel)        |
-| `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Playlist + Join queue & select song** — Full playlist (multi-page), Join Queue → Select Song when it's your turn (up to 5 songs/user) |
+| `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → Select Song → choose album, then song (ephemeral; up to 5 songs/user). Optional playlist display if `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID` is set. |
 | `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)                                               |
 | Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                                                         |
 
@@ -110,16 +110,15 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 ### Music Player channel (`#phantom-radio-music-player`) — single message
 
 - **One message only**: the Now Playing embed (or idle “No music currently playing”) with **Vote Skip** and **View Queue** buttons directly below it.
-- **Vote Skip** — Skip when 5 votes are reached.
+- **Vote Skip** — Skip when 10 votes are reached.
 - **View Queue** — Opens full queue (ephemeral).
 - Queue limits: **20 songs max** total, **5 songs per user** (when one of your songs finishes, you get a slot back).
 
 ### Song Selection channel (`#phantom-radio-song-selection`)
 
-1. **Track list embed** — Track count + instructions (Join queue → Select Song when it's your turn)
-2. **Full playlist** — Multi-page embed (8 tracks per page), Previous / Next buttons
-3. **Song Selection Queue** — Current selector, time remaining, waiting list, Join Queue / Leave / Select Song buttons
-4. When it's your turn, you get an ephemeral message with song selection dropdowns (up to 5 songs per user in queue)
+1. **Info embed** — Track count + instructions: Join queue → Select Song → **choose an album**, then pick a song (ephemeral).
+2. **Song Selection Queue** — Current selector, time remaining, Join Queue / Leave / Select Song buttons.
+3. When it's your turn, an ephemeral message shows **album dropdown** → after choosing an album, **song dropdowns** for that album, plus a **Back to albums** button to choose a different album (up to 5 songs per user in queue).
 
 ## YouTube Playback
 
@@ -236,19 +235,24 @@ npm start
    docker-compose logs -f phantom-radio
    ```
 
-#### BGM / PBZ playlist when running with Docker
+#### BGM / Playlist sync when running with Docker
 
-- Place BGM `.wav` files in `./music/pbz/` on the host (this folder is mounted into the container)
-- Update `config/pbz-bgm-tracks.js` to match your filenames, then run the seed **on the host** (Mongo runs in Docker):
+- Place audio files (`.wav`, `.mp3`, `.ogg`) in `./music/{albumSlug}/` on the host (see `music/README.md` for the 7 album folders). The `./music` folder is mounted into the container.
+- **Run the sync inside the container** (Node 20, same network as MongoDB):
 
   ```bash
-  # On host (from phantom-radio/)
-  MONGO_URI=mongodb://localhost:27017/honorbot npm run sync-pbz:host
+  # From project root — runs sync in a one-off container (uses MONGO_URI from docker-compose)
+  # If you see "Read timed out", use a longer timeout:
+  COMPOSE_HTTP_TIMEOUT=300 docker-compose run --rm phantom-radio npm run sync-pbz
   ```
 
-  If MongoDB is on a different host/port, set `MONGO_URI` accordingly (e.g. `mongodb://mongodb:27017/honorbot` only works from inside the Docker network)
+  Or, if the bot container is already running:
 
-- To keep only the PBZ playlist: run `node init-playlists.js` on the host with the same `MONGO_URI`
+  ```bash
+  docker-compose exec phantom-radio npm run sync-pbz
+  ```
+
+- If you run MongoDB on the host and want to sync from the host instead, use Node 18+ and: `MONGO_URI=mongodb://localhost:27017/honorbot npm run sync-pbz` (or `npm run sync-pbz:host`).
 
 #### Docker Commands
 
@@ -287,8 +291,9 @@ If you change display text (e.g. placeholders, messages) or add new buttons, **r
 | **User Channels**                         |                                                                 |
 | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                                |
 | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Vote Skip + Now Playing + View Queue (combined in one channel)  |
-| `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Full playlist (multi-page) + Join queue + Select Song (5/user)   |
+| `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (album → song, 5/user). Optional: `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID` for playlist display. |
 | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)              |
+| `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | Optional: separate channel for multi-page playlist embed        |
 | **Admin Channels**                        |                                                                |
 | `ADMIN_LOGS_CHANNEL_ID`                   | Admin logs - playlist changes, queue, playback events          |
 | `ADMIN_PLAYLIST_CHANNEL_ID`               | Admin panel for Add/Remove songs                               |

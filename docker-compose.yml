@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     volumes:
-      # Mount music folder (ใส่ไฟล์ BGM .wav ใน music/pbz/ บนโฮสต์)
+      # Mount music folder (ใส่ไฟล์ .wav/.mp3/.ogg ใน music/{albumSlug}/ บนโฮสต์)
       - ./music:/app/music:ro
     # Connect to Honor Bot's network to share MongoDB
     networks:

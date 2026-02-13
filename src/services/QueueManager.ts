@@ -85,6 +85,21 @@ export class QueueManager {
   }
 
   /**
+   * Get tracks for a given album (by albumKey slug), in main playlist order.
+   */
+  async getTracksByAlbum(albumKey: string): Promise<ITrack[]> {
+    if (!isDBConnected()) return [];
+
+    try {
+      const all = await this.getAllTracks();
+      return all.filter((t) => t.albumKey === albumKey);
+    } catch (error) {
+      console.error('[QueueManager] Error fetching tracks by album:', error);
+      return [];
+    }
+  }
+
+  /**
    * Search tracks by title or artist (within main playlist)
    */
   async searchTracks(query: string): Promise<ITrack[]> {

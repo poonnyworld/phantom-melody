@@ -21,6 +21,7 @@ import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER } from '../config/playlists';
 import { musicLogService } from './MusicLogService';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn } from 'child_process';
 
 export interface QueueItem {
   track: ITrack;
@@ -436,29 +437,59 @@ export class MusicPlayer {
   }
 
   /**
-   * Create audio resource from local MP3 file
+   * Create audio resource from local file (.wav, .mp3, .ogg).
+   * WAV: direct stream with Arbitrary. MP3/OGG: ffmpeg to Opus then OggOpus stream.
    */
   private async createLocalAudioResource(item: QueueItem) {
     const localPath = item.track.localPath!;
-    // Resolve path relative to project root's music folder
     const musicDir = path.join(__dirname, '../../music');
     const filePath = path.join(musicDir, localPath);
+    const ext = path.extname(filePath).toLowerCase();
 
     console.log(`[MusicPlayer] Attempting to play local file: ${filePath}`);
 
-    // Check if file exists
     if (!fs.existsSync(filePath)) {
       throw new Error(`Local file not found: ${filePath}`);
     }
 
-    // Create audio resource from file stream
-    const fileStream = fs.createReadStream(filePath);
-    const resource = createAudioResource(fileStream, {
-      inputType: StreamType.Arbitrary,
-    });
+    if (ext === '.wav') {
+      const fileStream = fs.createReadStream(filePath);
+      const resource = createAudioResource(fileStream, {
+        inputType: StreamType.Arbitrary,
+      });
+      console.log(`[MusicPlayer] Local WAV stream created successfully`);
+      return resource;
+    }
 
-    console.log(`[MusicPlayer] Local file stream created successfully`);
-    return resource;
+    if (ext === '.mp3' || ext === '.ogg') {
+      const ffmpegPath = await import('ffmpeg-static').then((m) => (m.default || m) as string);
+      const proc = spawn(
+        ffmpegPath,
+        [
+          '-i', filePath,
+          '-acodec', 'libopus',
+          '-f', 'opus',
+          '-ar', '48000',
+          '-ac', '2',
+          'pipe:1',
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+      const stdout = proc.stdout;
+      if (!stdout) throw new Error('ffmpeg stdout not available');
+      proc.stderr.on('data', (chunk: Buffer) => {
+        const msg = chunk.toString('utf8').trim();
+        if (msg && !msg.includes('time=')) console.warn('[MusicPlayer] ffmpeg:', msg);
+      });
+      proc.on('error', (err) => console.error('[MusicPlayer] ffmpeg spawn error:', err));
+      const resource = createAudioResource(stdout, {
+        inputType: StreamType.OggOpus,
+      });
+      console.log(`[MusicPlayer] Local ${ext} stream created via ffmpeg`);
+      return resource;
+    }
+
+    throw new Error(`Unsupported local file extension: ${ext}`);
   }
 
   /**

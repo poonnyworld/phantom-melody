@@ -13,6 +13,7 @@ export interface ITrack extends Document {
   audioSource: AudioSource; // Source type: 'youtube' or 'local'
   duration: number; // Duration in seconds
   category: TrackCategory;
+  albumKey?: string;   // folder slug under music/ (e.g. phantom-blade-1-2014)
   description: string; // Creative background
   instruments: string[]; // Featured instruments
   isHidden: boolean; // Hidden/treasure track
@@ -65,6 +66,10 @@ const TrackSchema: Schema = new Schema(
       type: String,
       enum: ['pbz', 'battle', 'story', 'exploration', 'emotional', 'ambient', 'hidden'], // Keep old ones for migration
       default: 'pbz',
+    },
+    albumKey: {
+      type: String,
+      required: false,
     },
     description: {
       type: String,
@@ -121,5 +126,6 @@ TrackSchema.index({ monthlyPlayCount: -1 });
 TrackSchema.index({ monthlyUpvotes: -1 });
 TrackSchema.index({ monthlyPinCount: -1 });
 TrackSchema.index({ category: 1 });
+TrackSchema.index({ albumKey: 1 });
 
 export const Track = mongoose.model<ITrack>('Track', TrackSchema);

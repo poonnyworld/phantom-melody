@@ -20,10 +20,25 @@ export const MAIN_PLAYLIST: PlaylistConfig = {
 // Keep for backward compatibility (but only one playlist)
 export const DEFAULT_PLAYLISTS: PlaylistConfig[] = [MAIN_PLAYLIST];
 
+// Album configuration (display name + folder slug for music/)
+export interface AlbumConfig {
+  slug: string;       // folder name under music/, used as albumKey in Track
+  displayName: string;
+}
+export const ALBUMS: AlbumConfig[] = [
+  { slug: '2014_Phantom-Blade-1', displayName: 'Phantom Blade 1 (2014)' },
+  { slug: '2016_Phantom-Blade-2', displayName: 'Phantom Blade 2 (2016)' },
+  { slug: '2017_Phantom-Blade-2-Desert', displayName: 'Phantom Blade 2 Desert (2017)' },
+  { slug: '2023_Phantom-Blade-3', displayName: 'Phantom Blade 3 (2023)' },
+  { slug: '2025_Phantom-Blade-Zero-Soundtrack', displayName: 'Phantom Blade Zero Soundtrack (2025)' },
+  { slug: '2009_Rain-Blood-2', displayName: 'Rain Blood 2 Original Sountrack (2009)' },
+  { slug: '2012_Rain-Blood-Chronicles', displayName: 'Rain Blood Chronicles CD (2012)' },
+];
+
 // Queue limits
 export const MAX_QUEUE_SIZE = 20;
 export const MAX_QUEUES_PER_USER = 5;
-export const SKIP_VOTES_REQUIRED = 5;
+export const SKIP_VOTES_REQUIRED = 10;
 
 // Idle disconnect: leave voice channel after this many minutes of no activity
 export const IDLE_DISCONNECT_MINUTES = parseInt(process.env.IDLE_DISCONNECT_MINUTES || '20', 10);

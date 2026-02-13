@@ -1,39 +1,36 @@
 # Music Files Directory
 
-This directory contains local MP3 files for the Phantom Radio bot.
+This directory contains local audio files for the Phantom Radio bot. Tracks are organized by album in separate folders.
 
 ## Directory Structure
 
+One folder per album (slug = folder name). Supported extensions: **.wav** (primary), **.mp3**, **.ogg**.
+
 ```
 music/
-├── pbz/          # Phantom Blade Zero BGM (.wav – hardcoded ใน config, ไม่ push ขึ้น git)
-├── battle/       # Battle/action music
-├── story/        # Story/narrative music
-├── exploration/  # Exploration/adventure music
-├── emotional/    # Emotional/dramatic music
-├── ambient/      # Ambient/background music
-└── hidden/       # Hidden/treasure tracks (unlockable)
+├── 2014_Phantom-Blade-1/
+├── 2016_Phantom-Blade-2/
+├── 2017_Phantom-Blade-2-Desert/
+├── 2023_Phantom-Blade-3/
+├── 2025_Phantom-Blade-Zero-Soundtrack/
+├── 2009_Rain-Blood-2/
+└── 2012_Rain-Blood-Chronicles/
 ```
 
-## File Naming Convention
-
-Files should be named using the track ID:
-
-- `{category}/{trackId}.mp3`
-- Example: `battle/battle-001.mp3`
+Only the **7 album folders** above are used. The sync script and bot do not use the legacy `pbz/` folder. Album slugs must match `src/config/playlists.ts` (`ALBUMS`). Place audio files inside the album folder; the sync script picks up `.wav`, `.mp3`, and `.ogg` files.
 
 ## Adding New Tracks
 
-1. Place the MP3 file in the appropriate category folder
-2. Update the database with the track information using the migration script
-3. Set `localPath` to the relative path (e.g., `battle/battle-001.mp3`)
-4. Set `audioSource` to `local`
+1. Place the audio file (`.wav`, `.mp3`, or `.ogg`) in the correct album folder under `music/`.
+2. Run the sync script to update the database and main playlist:
+   - From project root: `npm run sync-pbz` (or `npm run sync-pbz:host` if MongoDB is on localhost).
+3. Tracks are added/updated with `localPath` = `{albumSlug}/{fileName}` and `albumKey` = album slug.
 
 ## Audio Requirements
 
-- Format: MP3 หรือ WAV (สำหรับ PBZ BGM ใช้ `music/pbz/` + config `config/pbz-bgm-tracks.js` แล้วรัน `npm run seed-pbz-bgm`)
-- Bitrate: 128-320 kbps recommended (MP3)
-- Sample Rate: 44.1 kHz or 48 kHz
+- **Formats:** WAV (primary), MP3, OGG. All are supported for playback.
+- **MP3:** 128–320 kbps recommended.
+- **Sample rate:** 44.1 kHz or 48 kHz.
 
 ## Copyright Notice
 

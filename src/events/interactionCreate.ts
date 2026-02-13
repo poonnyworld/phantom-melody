@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import { client } from '../index';
 import { isDBConnected } from '../utils/connectDB';
-import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER, SKIP_VOTES_REQUIRED, formatDuration } from '../config/playlists';
+import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER, SKIP_VOTES_REQUIRED, formatDuration, ALBUMS } from '../config/playlists';
 
 export const name = Events.InteractionCreate;
 export const once = false;
@@ -138,6 +138,11 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
     return;
   }
 
+  if (customId === 'selection_back_to_albums') {
+    await handleSelectionBackToAlbums(interaction);
+    return;
+  }
+
   // Playlist display: Previous/Next page
   if (customId.startsWith('playlist_prev_') || customId.startsWith('playlist_next_')) {
     await handlePlaylistPage(interaction);
@@ -149,6 +154,12 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
  * Handle select menu interactions
  */
 async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+  // Album selection (first step: choose album, then we show song list for that album)
+  if (interaction.customId === 'album_select') {
+    await handleAlbumSelect(interaction);
+    return;
+  }
+
   // User song selection (song_select, song_select_0, song_select_1, ...)
   if (interaction.customId.startsWith('song_select')) {
     await handleSongSelect(interaction);
@@ -172,6 +183,39 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<v
 // ============================================
 // USER HANDLERS
 // ============================================
+
+/**
+ * Handle album selection — show song dropdowns for the chosen album
+ */
+async function handleAlbumSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  const albumKey = interaction.values[0];
+  const tracks = await client.queueManager.getTracksByAlbum(albumKey);
+  if (tracks.length === 0) {
+    await interaction.update({
+      content: 'No tracks in that album yet.',
+      components: [],
+    });
+    return;
+  }
+  // Max 4 song menus so we can add a 5th row with Back button (Discord limit 5 action rows)
+  const songRows = buildSongSelectComponents(tracks, 4);
+  const components = [...songRows, buildBackToAlbumsButtonRow()];
+  await interaction.update({
+    content: '**Select a song below** (only you can see this):',
+    components,
+  });
+}
+
+/**
+ * Handle "Back to albums" button — show album select menu again
+ */
+async function handleSelectionBackToAlbums(interaction: ButtonInteraction): Promise<void> {
+  const albumRow = buildAlbumSelectComponent();
+  await interaction.update({
+    content: '**Choose an album below**, then pick a song (only you can see this):',
+    components: [albumRow],
+  });
+}
 
 /**
  * Handle song selection from dropdown
@@ -660,10 +704,34 @@ async function handleAdminResume(interaction: ButtonInteraction): Promise<void> 
 const SONG_SELECT_OPTIONS_PER_MENU = 25;
 const SONG_SELECT_MAX_MENUS = 5;
 
-/** Build song select dropdown rows for ephemeral message (when it's your turn). */
-function buildSongSelectComponents(tracks: any[]): ActionRowBuilder<StringSelectMenuBuilder>[] {
+/** Build album select menu (one row, 7 albums). */
+function buildAlbumSelectComponent(): ActionRowBuilder<StringSelectMenuBuilder> {
+  const options = ALBUMS.map((a) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(a.displayName)
+      .setValue(a.slug)
+  );
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('album_select')
+    .setPlaceholder('Choose an album...')
+    .addOptions(options);
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+}
+
+/** Build a row with "Back to albums" button (for ephemeral song list). */
+function buildBackToAlbumsButtonRow(): ActionRowBuilder<ButtonBuilder> {
+  const backBtn = new ButtonBuilder()
+    .setCustomId('selection_back_to_albums')
+    .setLabel('Back to albums')
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('◀');
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn);
+}
+
+/** Build song select dropdown rows. Use maxMenus=4 when adding a Back button row (Discord max 5 rows). */
+function buildSongSelectComponents(tracks: any[], maxMenus: number = SONG_SELECT_MAX_MENUS): ActionRowBuilder<StringSelectMenuBuilder>[] {
   const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-  const menuCount = Math.min(SONG_SELECT_MAX_MENUS, Math.ceil(tracks.length / SONG_SELECT_OPTIONS_PER_MENU));
+  const menuCount = Math.min(maxMenus, SONG_SELECT_MAX_MENUS, Math.ceil(tracks.length / SONG_SELECT_OPTIONS_PER_MENU));
   for (let i = 0; i < menuCount; i++) {
     const chunk = tracks.slice(i * SONG_SELECT_OPTIONS_PER_MENU, (i + 1) * SONG_SELECT_OPTIONS_PER_MENU);
     const options = chunk.map((track: any) =>
@@ -693,14 +761,13 @@ async function handleSelectionJoinQueue(interaction: ButtonInteraction): Promise
   const { selectionQueueService } = await import('../services/SelectionQueueService');
   const result = selectionQueueService.joinQueue(interaction.user.id, interaction.user.username);
 
-  // When it's their turn (position === 0), show ephemeral message with song selection dropdowns
+  // When it's their turn (position === 0), show ephemeral message with album selection first
   if (result.success && result.position === 0) {
-    const tracks = await client.queueManager.getAllTracks();
-    const components = buildSongSelectComponents(tracks);
+    const albumRow = buildAlbumSelectComponent();
     await interaction.reply({
-      content: `✅ ${result.message}\n\n**Select a song below** (only you can see this):`,
+      content: `✅ ${result.message}\n\n**Choose an album below**, then pick a song (only you can see this):`,
       ephemeral: true,
-      components: components.length > 0 ? components : undefined,
+      components: [albumRow],
     });
     return;
   }
@@ -735,11 +802,11 @@ async function handleSelectionChooseSong(interaction: ButtonInteraction): Promis
     return;
   }
 
-  const components = buildSongSelectComponents(tracks);
+  const albumRow = buildAlbumSelectComponent();
   await interaction.reply({
-    content: '**Select a song below** (only you can see this):',
+    content: '**Choose an album below**, then pick a song (only you can see this):',
     ephemeral: true,
-    components,
+    components: [albumRow],
   });
 }
 

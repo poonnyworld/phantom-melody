@@ -1,21 +1,43 @@
 /**
- * Sync เพลย์ลิสต์ PBZ จากไฟล์ .wav ใน music/pbz/
- * ใส่ไฟล์ .wav ลงใน music/pbz/ แล้วรันสคริปต์นี้ แทร็กจะถูกเพิ่มใน DB และเพลย์ลิสต์อัตโนมัติ
+ * Sync เพลย์ลิสต์ PBZ จากไฟล์ใน music/{albumSlug}/
+ * รองรับ .wav, .mp3, .ogg — ใส่ไฟล์ลงในโฟลเดอร์ตามอัลบั้ม แล้วรันสคริปต์นี้
  *
  * ใช้: node scripts/sync-pbz-from-files.js
  * ต้องมี MongoDB (MONGO_URI ใน .env)
+ * ต้องใช้ Node.js 18 ขึ้นไป (npm run sync-pbz)
  */
+const nodeVersion = process.versions && process.versions.node;
+const major = nodeVersion ? parseInt(nodeVersion.split('.')[0], 10) : 0;
+if (major < 18) {
+  console.error('This script requires Node.js 18 or newer. Current:', process.version);
+  console.error('Install a newer Node (e.g. from https://nodejs.org or via nvm) and run: npm run sync-pbz');
+  process.exit(1);
+}
+
 const path = require('path');
 const fs = require('fs');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-const MUSIC_PBZ = path.join(__dirname, '..', 'music', 'pbz');
+const MUSIC_DIR = path.join(__dirname, '..', 'music');
 const PLAYLIST_NAME = 'Phantom Blade Zero Radio';
 const PLAYLIST_CATEGORY = 'pbz';
 
+// Must match src/config/playlists.ts ALBUMS (slug = folder name under music/)
+const ALBUMS = [
+  { slug: '2014_Phantom-Blade-1', displayName: 'Phantom Blade 1 (2014)' },
+  { slug: '2016_Phantom-Blade-2', displayName: 'Phantom Blade 2 (2016)' },
+  { slug: '2017_Phantom-Blade-2-Desert', displayName: 'Phantom Blade 2 Desert (2017)' },
+  { slug: '2023_Phantom-Blade-3', displayName: 'Phantom Blade 3 (2023)' },
+  { slug: '2025_Phantom-Blade-Zero-Soundtrack', displayName: 'Phantom Blade Zero Soundtrack (2025)' },
+  { slug: '2009_Rain-Blood-2', displayName: 'Rain Blood 2 Original Sountrack (2009)' },
+  { slug: '2012_Rain-Blood-Chronicles', displayName: 'Rain Blood Chronicles CD (2012)' },
+];
+
+const AUDIO_EXTENSIONS = ['.wav', '.mp3', '.ogg'];
+
 function slugFromFilename(name) {
-  return 'pbz-' + name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '').toLowerCase().slice(0, 80) || 'pbz-track';
+  return name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '').toLowerCase().slice(0, 80) || 'track';
 }
 
 function uniqueTrackId(baseId, existing) {
@@ -37,6 +59,7 @@ const TrackSchema = new mongoose.Schema({
   audioSource: { type: String, enum: ['youtube', 'local'], default: 'local' },
   duration: { type: Number, default: 0 },
   category: { type: String, default: 'pbz' },
+  albumKey: { type: String },
   description: { type: String, default: '' },
   instruments: { type: [String], default: [] },
   isHidden: { type: Boolean, default: false },
@@ -69,15 +92,9 @@ function shuffle(arr) {
 }
 
 async function main() {
-  if (!fs.existsSync(MUSIC_PBZ)) {
-    console.error('โฟลเดอร์ music/pbz/ ไม่พบ');
+  if (!fs.existsSync(MUSIC_DIR)) {
+    console.error('โฟลเดอร์ music/ ไม่พบ');
     process.exit(1);
-  }
-
-  const files = fs.readdirSync(MUSIC_PBZ).filter((f) => f.toLowerCase().endsWith('.wav'));
-  if (files.length === 0) {
-    console.log('ไม่พบไฟล์ .wav ใน music/pbz/ — ใส่ไฟล์ .wav ลงในโฟลเดอร์นี้แล้วรันใหม่');
-    process.exit(0);
   }
 
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/honorbot';
@@ -98,39 +115,70 @@ async function main() {
   const Playlist = mongoose.model('Playlist', PlaylistSchema);
   const existingIds = new Set((await Track.find({ category: PLAYLIST_CATEGORY }).select('trackId')).map((t) => t.trackId));
 
-  const trackIds = [];
-  for (const fileName of files.sort()) {
-    const title = fileName.replace(/\.wav$/i, '');
-    const baseId = slugFromFilename(title);
-    const trackId = uniqueTrackId(baseId, existingIds);
-    existingIds.add(trackId);
-    const localPath = `pbz/${fileName}`;
+  const allTrackIds = [];
 
-    await Track.findOneAndUpdate(
-      { trackId },
-      {
-        trackId,
-        title,
-        artist: 'Phantom Blade Zero',
-        localPath,
-        audioSource: 'local',
-        category: PLAYLIST_CATEGORY,
-        isHidden: false,
-      },
-      { upsert: true, new: true }
-    );
-    trackIds.push(trackId);
-    console.log(`  ${trackId}  ${title}  →  music/${localPath}`);
+  for (const album of ALBUMS) {
+    const albumDir = path.join(MUSIC_DIR, album.slug);
+    if (!fs.existsSync(albumDir) || !fs.statSync(albumDir).isDirectory()) {
+      console.log(`  [skip] ${album.slug} — โฟลเดอร์ไม่มี`);
+      continue;
+    }
+
+    const rawFiles = fs.readdirSync(albumDir);
+    const files = rawFiles.filter((f) => {
+      const ext = path.extname(f).toLowerCase();
+      return AUDIO_EXTENSIONS.includes(ext);
+    }).sort();
+
+    if (files.length === 0) {
+      console.log(`  [skip] ${album.slug} — ไม่พบ .wav/.mp3/.ogg`);
+      continue;
+    }
+
+    console.log(`\n  Album: ${album.displayName} (${album.slug}) — ${files.length} file(s)`);
+
+    for (const fileName of files) {
+      const ext = path.extname(fileName);
+      const baseName = path.basename(fileName, ext);
+      const title = baseName;
+      const baseId = album.slug + '-' + slugFromFilename(baseName);
+      const trackId = uniqueTrackId(baseId, existingIds);
+      existingIds.add(trackId);
+      const localPath = `${album.slug}/${fileName}`;
+
+      await Track.findOneAndUpdate(
+        { trackId },
+        {
+          trackId,
+          title,
+          artist: 'Phantom Blade Zero',
+          localPath,
+          audioSource: 'local',
+          category: PLAYLIST_CATEGORY,
+          albumKey: album.slug,
+          isHidden: false,
+        },
+        { upsert: true, new: true }
+      );
+      allTrackIds.push(trackId);
+      console.log(`    ${trackId}  ${title}  →  music/${localPath}`);
+    }
   }
 
-  const shuffledOrder = shuffle(trackIds);
+  if (allTrackIds.length === 0) {
+    console.log('\nไม่พบไฟล์ในโฟลเดอร์อัลบั้ม — ใส่ .wav/.mp3/.ogg ลงใน music/{albumSlug}/ แล้วรันใหม่');
+    await mongoose.disconnect();
+    process.exit(0);
+  }
+
+  const shuffledOrder = shuffle(allTrackIds);
   await Playlist.findOneAndUpdate(
     { name: PLAYLIST_NAME },
     {
       name: PLAYLIST_NAME,
       category: PLAYLIST_CATEGORY,
       description: 'Official soundtrack from Phantom Blade Zero',
-      trackIds,
+      trackIds: allTrackIds,
       shuffledOrder,
       lastShuffled: new Date(),
       isDefault: true,
@@ -138,7 +186,7 @@ async function main() {
     { upsert: true, new: true }
   );
 
-  console.log(`\nPlaylist "${PLAYLIST_NAME}" updated with ${trackIds.length} tracks.`);
+  console.log(`\nPlaylist "${PLAYLIST_NAME}" updated with ${allTrackIds.length} tracks.`);
   await mongoose.disconnect();
   console.log('Done.');
 }

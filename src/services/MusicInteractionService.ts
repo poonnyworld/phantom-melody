@@ -60,7 +60,11 @@ export class MusicInteractionService {
     }
     if (songSelectionChannelId) {
       await this.ensureSongSelectionMessage(client, songSelectionChannelId);
-      await this.ensurePlaylistDisplayMessage(client, songSelectionChannelId);
+      // Playlist list is only shown in ephemeral flow (Select Song → album → song), not in channel
+    }
+    const playlistDisplayChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID;
+    if (playlistDisplayChannelId) {
+      await this.ensurePlaylistDisplayMessage(client, playlistDisplayChannelId);
     }
     if (manualChannelId) {
       await this.ensureManualMessage(client, manualChannelId);
@@ -267,8 +271,8 @@ export class MusicInteractionService {
           `${MAIN_PLAYLIST.description}\n\n` +
           `**${trackCount}** tracks in playlist\n\n` +
           (hasTracks
-            ? `📋 **Join the queue** below to get your turn — then use **Select Song** to choose a track (ephemeral).\n💡 Queue: max ${MAX_QUEUE_SIZE} songs total • up to ${MAX_QUEUES_PER_USER} songs per user (slots free when your song finishes)`
-            : '⚠️ No tracks in playlist — Add .wav files to `music/pbz/` and run `npm run sync-pbz` (or `npm run seed-pbz-bgm` if using config)')
+            ? `📋 **Join the queue** below to get your turn — then use **Select Song**. First choose an album, then pick a song (ephemeral).\n💡 Queue: max ${MAX_QUEUE_SIZE} songs total • up to ${MAX_QUEUES_PER_USER} songs per user (slots free when your song finishes)`
+            : '⚠️ No tracks in playlist — Add .wav/.mp3/.ogg files to `music/{albumSlug}/` and run `npm run sync-pbz`')
         )
         .setFooter({
           text: `${MAIN_PLAYLIST.emoji} ${MAIN_PLAYLIST.displayName}`,
@@ -674,7 +678,10 @@ export class MusicInteractionService {
     const songSelectionChannelId = process.env.PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID || process.env.PHANTOM_RADIO_TEXT_CHANNEL_ID;
     if (songSelectionChannelId && this.client) {
       await this.ensureSongSelectionMessage(this.client, songSelectionChannelId);
-      await this.ensurePlaylistDisplayMessage(this.client, songSelectionChannelId);
+    }
+    const playlistDisplayChannelId = process.env.PHANTOM_RADIO_PLAYLIST_CHANNEL_ID;
+    if (playlistDisplayChannelId && this.client) {
+      await this.ensurePlaylistDisplayMessage(this.client, playlistDisplayChannelId);
     }
     const adminChannelId = process.env.ADMIN_PLAYLIST_CHANNEL_ID;
     if (adminChannelId && this.client) {
