@@ -12,6 +12,8 @@ services:
     volumes:
       # Mount music folder (ใส่ไฟล์ .wav/.mp3/.ogg ใน music/{albumSlug}/ บนโฮสต์)
       - ./music:/app/music:ro
+      # Export usage history มาที่โฟลเดอร์นี้ (รัน script ด้วย --out-dir /app/exports)
+      - ./exports:/app/exports
     # Connect to Honor Bot's network to share MongoDB
     networks:
       - honorbot-network

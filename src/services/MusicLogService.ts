@@ -1,4 +1,5 @@
 import { Client, TextChannel, EmbedBuilder, Message } from 'discord.js';
+import { isDBConnected } from '../utils/connectDB';
 
 export interface MusicLogEntry {
   timestamp: Date;
@@ -40,11 +41,22 @@ export class MusicLogService {
       this.ensureLogMessage().catch((error) => {
         console.error('[MusicLogService] ❌ Error in initial log message setup:', error);
       });
+      // If DB wasn't ready at start, try loading from DB once after a delay
+      setTimeout(() => {
+        if (this.logEntries.length === 0 && isDBConnected()) {
+          this.ensureLogMessage().catch(() => {});
+        }
+      }, 6000);
     } else {
       client.once('ready', () => {
         this.ensureLogMessage().catch((error) => {
           console.error('[MusicLogService] ❌ Error in initial log message setup:', error);
         });
+        setTimeout(() => {
+          if (this.logEntries.length === 0 && isDBConnected()) {
+            this.ensureLogMessage().catch(() => {});
+          }
+        }, 6000);
       });
     }
 
@@ -79,6 +91,13 @@ export class MusicLogService {
       this.logEntries = this.logEntries.slice(0, this.MAX_ENTRIES);
     }
 
+    // Persist to DB so log survives container restarts
+    if (isDBConnected()) {
+      import('../models/PlaybackLogEntry').then(({ PlaybackLogEntry }) =>
+        PlaybackLogEntry.create({ timestamp: entry.timestamp, message: entry.message, type: entry.type })
+      ).catch((err) => console.error('[MusicLogService] Failed to save playback log to DB:', err));
+    }
+
     // Update the log message
     this.updateLogMessage().catch((error) => {
       console.error('[MusicLogService] Error updating log message:', error);
@@ -93,6 +112,24 @@ export class MusicLogService {
 
     if (!channelId || !this.client || !this.client.isReady()) {
       return;
+    }
+
+    // Restore last entries from DB after restart (so Discord log is repopulated)
+    if (this.logEntries.length === 0 && isDBConnected()) {
+      try {
+        const { PlaybackLogEntry } = await import('../models/PlaybackLogEntry');
+        const docs = await PlaybackLogEntry.find().sort({ timestamp: -1 }).limit(this.MAX_ENTRIES).lean();
+        this.logEntries = docs.map((d) => ({
+          timestamp: d.timestamp,
+          message: d.message,
+          type: d.type as MusicLogEntry['type'],
+        }));
+        if (this.logEntries.length > 0) {
+          console.log(`[MusicLogService] ✓ Loaded ${this.logEntries.length} playback log entries from DB`);
+        }
+      } catch (e) {
+        console.error('[MusicLogService] Failed to load playback log from DB:', e);
+      }
     }
 
     try {

@@ -13,7 +13,8 @@
     "clear-commands": "ts-node src/clear-commands.ts",
     "seed-pbz-bgm": "node scripts/seed-pbz-bgm.js",
     "sync-pbz": "node scripts/sync-pbz-from-files.js",
-    "sync-pbz:host": "MONGO_URI=mongodb://localhost:27017/honorbot node scripts/sync-pbz-from-files.js"
+    "sync-pbz:host": "MONGO_URI=mongodb://localhost:27017/honorbot node scripts/sync-pbz-from-files.js",
+    "export-usage": "node scripts/export-usage-history.js"
   },
   "keywords": [
     "discord",

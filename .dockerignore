@@ -8,3 +8,6 @@ npm-debug.log*
 .DS_Store
 .vscode
 .idea
+# Music files are mounted at runtime; only keep .gitkeep in image
+music/*
+!music/.gitkeep

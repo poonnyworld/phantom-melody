@@ -16,7 +16,7 @@ import { Client, Guild, VoiceChannel } from 'discord.js';
 import { getAudioStream, extractVideoId } from './YouTubeService';
 import { Track, ITrack } from '../models/Track';
 import { isDBConnected } from '../utils/connectDB';
-import { setUserCurrentTrack } from '../events/voiceStateUpdate';
+import { setUserCurrentTrack, getUsersInVoice } from '../events/voiceStateUpdate';
 import { MAX_QUEUE_SIZE, MAX_QUEUES_PER_USER } from '../config/playlists';
 import { musicLogService } from './MusicLogService';
 import * as fs from 'fs';
@@ -403,6 +403,11 @@ export class MusicPlayer {
       // Update Now Playing display
       const { nowPlayingDisplayService } = await import('./NowPlayingDisplayService');
       nowPlayingDisplayService.updateDisplay();
+
+      // So ListeningHistory can record who was listening to this track when they leave voice
+      for (const uid of getUsersInVoice()) {
+        setUserCurrentTrack(uid, item.track.trackId);
+      }
 
       // Add log entry (Now Playing will be shown in log)
       const { musicLogService } = await import('./MusicLogService');

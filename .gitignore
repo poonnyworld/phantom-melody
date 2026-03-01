@@ -28,3 +28,9 @@ music/**/*.mp3
 music/**/*.wav
 music/**/*.ogg
 !music/**/.gitkeep
+
+# Export outputs & fake log script (local only)
+exports/
+usage-history-*.csv
+usage-history-*.json
+scripts/seed-fake-playback-log.js
