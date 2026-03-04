@@ -84,12 +84,12 @@ Each channel has a specific role. Set the Channel IDs in `.env` to match the cha
 
 ### User channels
 
-| Channel (example name)               | Env variable                              | Purpose                                                                                                                                 |
-| ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Vote Skip + View Queue + Now Playing** — Vote Skip button, Now Playing (progress, queue), View Queue (combined in one channel)        |
+| Channel (example name)               | Env variable                              | Purpose                                                                                                                                                                                     |
+| ------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#phantom-radio-music-player`        | `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | **Vote Skip + View Queue + Now Playing** — Vote Skip button, Now Playing (progress, queue), View Queue (combined in one channel)                                                            |
 | `#phantom-radio-song-selection`      | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | **Join queue & select song** — Join Queue → Select Song → choose album, then song (ephemeral; up to 5 songs/user). Optional playlist display if `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID` is set. |
-| `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)                                               |
-| Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                                                         |
+| `#phantom-radio-manual`              | `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | **User guide** — Bot posts an embed with instructions and clickable channel links (<#id>)                                                                                                   |
+| Voice channel (e.g. `phantom-radio`) | `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | **Voice** — Music plays here; listeners must be in this channel                                                                                                                             |
 
 ### Admin channels
 
@@ -160,15 +160,15 @@ This approach avoids common issues with JavaScript YouTube libraries that break 
 
 ### Bot & channel permissions
 
-| Who            | Where                    | Permissions needed |
-|----------------|--------------------------|--------------------|
-| **Bot**        | All bot channels         | View Channel, Send Messages, Embed Links, Read Message History, Manage Messages (so it can edit the single Now Playing message). |
-| **Bot**        | Voice channel            | View Channel, Connect, Speak. |
-| **Bot**        | Server (for slash commands) | Use Application Commands (granted by invite with `applications.commands`). |
-| **Users**      | Music Player channel     | View Channel, Read Message History (to see the message and use Vote Skip / View Queue buttons). |
-| **Users**      | Song Selection channel   | View Channel, Read Message History (to use Join Queue, Select Song, playlist pages). |
-| **Users**      | Voice channel            | View Channel, Connect (to listen). |
-| **Admins**     | Admin channels           | View Channel, Read Message History; bot needs Send Messages + Embed Links there. Admin-only actions (Force Skip, Pause, Remove tracks) require the user to have **Administrator** (or you can change the code to use a specific role). |
+| Who        | Where                       | Permissions needed                                                                                                                                                                                                                     |
+| ---------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bot**    | All bot channels            | View Channel, Send Messages, Embed Links, Read Message History, Manage Messages (so it can edit the single Now Playing message).                                                                                                       |
+| **Bot**    | Voice channel               | View Channel, Connect, Speak.                                                                                                                                                                                                          |
+| **Bot**    | Server (for slash commands) | Use Application Commands (granted by invite with `applications.commands`).                                                                                                                                                             |
+| **Users**  | Music Player channel        | View Channel, Read Message History (to see the message and use Vote Skip / View Queue buttons).                                                                                                                                        |
+| **Users**  | Song Selection channel      | View Channel, Read Message History (to use Join Queue, Select Song, playlist pages).                                                                                                                                                   |
+| **Users**  | Voice channel               | View Channel, Connect (to listen).                                                                                                                                                                                                     |
+| **Admins** | Admin channels              | View Channel, Read Message History; bot needs Send Messages + Embed Links there. Admin-only actions (Force Skip, Pause, Remove tracks) require the user to have **Administrator** (or you can change the code to use a specific role). |
 
 Ensure the bot role is **above** the voice channel’s permission overwrites if you restrict access (so the bot can always Connect + Speak).
 
@@ -254,6 +254,8 @@ npm start
 
 - If you run MongoDB on the host and want to sync from the host instead, use Node 18+ and: `MONGO_URI=mongodb://localhost:27017/honorbot npm run sync-pbz` (or `npm run sync-pbz:host`).
 
+Optional env for shared dev setup: `HONOR_POINTS_API_URL`, `HONOR_POINTS_API_KEY` (central Honor Points API); `BOTS_LOGGER_URL`, `BOTS_LOGGER_API_KEY` (action logging).
+
 #### Docker Commands
 
 ```bash
@@ -282,24 +284,24 @@ If you change display text (e.g. placeholders, messages) or add new buttons, **r
 
 ## Environment Variables
 
-| Variable                                  | Description                                                    |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| `DISCORD_TOKEN`                           | Phantom Radio bot token                                        |
-| `CLIENT_ID`                               | Discord application client ID                                  |
-| `GUILD_ID`                                | Server (guild) ID for command deployment                       |
-| `MONGO_URI`                               | MongoDB connection string                                      |
-| **User Channels**                         |                                                                 |
-| `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                                |
-| `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Vote Skip + Now Playing + View Queue (combined in one channel)  |
+| Variable                                  | Description                                                                                                          |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_TOKEN`                           | Phantom Radio bot token                                                                                              |
+| `CLIENT_ID`                               | Discord application client ID                                                                                        |
+| `GUILD_ID`                                | Server (guild) ID for command deployment                                                                             |
+| `MONGO_URI`                               | MongoDB connection string                                                                                            |
+| **User Channels**                         |                                                                                                                      |
+| `PHANTOM_RADIO_VOICE_CHANNEL_ID`          | Voice channel for music playback                                                                                     |
+| `PHANTOM_RADIO_MUSIC_PLAYER_CHANNEL_ID`   | Vote Skip + Now Playing + View Queue (combined in one channel)                                                       |
 | `PHANTOM_RADIO_SONG_SELECTION_CHANNEL_ID` | Join queue + Select Song (album → song, 5/user). Optional: `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID` for playlist display. |
-| `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)              |
-| `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | Optional: separate channel for multi-page playlist embed        |
-| **Admin Channels**                        |                                                                |
-| `ADMIN_LOGS_CHANNEL_ID`                   | Admin logs - playlist changes, queue, playback events          |
-| `ADMIN_PLAYLIST_CHANNEL_ID`               | Admin panel for Add/Remove songs                               |
-| `ADMIN_CONTROL_CHANNEL_ID`                | Admin-only: Force Skip / Pause / Resume (emergency or testing) |
-| **Legacy**                                |                                                                |
-| `PHANTOM_RADIO_TEXT_CHANNEL_ID`           | Fallback text channel                                          |
+| `PHANTOM_RADIO_MANUAL_CHANNEL_ID`         | Guide message with clickable channel links (<#id>)                                                                   |
+| `PHANTOM_RADIO_PLAYLIST_CHANNEL_ID`       | Optional: separate channel for multi-page playlist embed                                                             |
+| **Admin Channels**                        |                                                                                                                      |
+| `ADMIN_LOGS_CHANNEL_ID`                   | Admin logs - playlist changes, queue, playback events                                                                |
+| `ADMIN_PLAYLIST_CHANNEL_ID`               | Admin panel for Add/Remove songs                                                                                     |
+| `ADMIN_CONTROL_CHANNEL_ID`                | Admin-only: Force Skip / Pause / Resume (emergency or testing)                                                       |
+| **Legacy**                                |                                                                                                                      |
+| `PHANTOM_RADIO_TEXT_CHANNEL_ID`           | Fallback text channel                                                                                                |
 
 ## Admin: Adding Songs
 

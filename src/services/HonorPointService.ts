@@ -2,6 +2,7 @@ import { User, IUser } from '../models/User';
 import { Track } from '../models/Track';
 import { isDBConnected } from '../utils/connectDB';
 import { HONOR_COSTS } from '../config/playlists';
+import { isHonorPointsApiEnabled, getBalance, deduct, add } from './HonorPointsApiClient';
 
 export interface HonorPointResult {
   success: boolean;
@@ -44,8 +45,15 @@ export class HonorPointService {
 
   // Get user's honor points
   async getHonorPoints(userId: string): Promise<number> {
+    if (isHonorPointsApiEnabled()) {
+      try {
+        return await getBalance(userId);
+      } catch (error) {
+        console.error('[HonorPointService] API getBalance error:', error);
+        return 0;
+      }
+    }
     if (!isDBConnected()) return 0;
-
     try {
       const user = await User.findOne({ userId });
       return user?.honorPoints || 0;
@@ -57,13 +65,38 @@ export class HonorPointService {
 
   // Deduct honor points
   async deductPoints(userId: string, amount: number, reason: string): Promise<HonorPointResult> {
+    if (isHonorPointsApiEnabled()) {
+      try {
+        if (!isHonorEnabled()) {
+          const bal = await getBalance(userId);
+          return { success: true, message: 'Honor Points are disabled. Action allowed without cost.', newBalance: bal, cost: amount };
+        }
+        const result = await deduct(userId, amount);
+        if (!result.success) {
+          return {
+            success: false,
+            message: result.error ?? 'Insufficient Honor Points!',
+            newBalance: result.newBalance,
+            cost: amount,
+          };
+        }
+        console.log(`[HonorPointService] User ${userId} spent ${amount} points for ${reason}. Balance: ${result.newBalance}`);
+        return {
+          success: true,
+          message: `Successfully spent ${amount} Honor Points for ${reason}!`,
+          newBalance: result.newBalance ?? 0,
+          cost: amount,
+        };
+      } catch (error) {
+        console.error('[HonorPointService] API deduct error:', error);
+        return { success: false, message: 'An error occurred while processing your request.' };
+      }
+    }
     if (!isDBConnected()) {
       return { success: false, message: 'Database not connected' };
     }
-
     try {
       const user = await User.findOne({ userId });
-
       if (!isHonorEnabled()) {
         return {
           success: true,
@@ -72,25 +105,20 @@ export class HonorPointService {
           cost: amount,
         };
       }
-
       if (!user) {
         return { success: false, message: 'User not found. Please interact with Honor Bot first!' };
       }
-
       if (user.honorPoints < amount) {
-        return { 
-          success: false, 
+        return {
+          success: false,
           message: `Insufficient Honor Points! You need ${amount} points but only have ${user.honorPoints}.`,
           newBalance: user.honorPoints,
           cost: amount,
         };
       }
-
       user.honorPoints -= amount;
       await user.save();
-
       console.log(`[HonorPointService] ${user.username} spent ${amount} points for ${reason}. Balance: ${user.honorPoints}`);
-
       return {
         success: true,
         message: `Successfully spent ${amount} Honor Points for ${reason}!`,
@@ -105,33 +133,42 @@ export class HonorPointService {
 
   // Add honor points (for listening rewards)
   async addPoints(userId: string, amount: number, reason: string): Promise<HonorPointResult> {
+    if (isHonorPointsApiEnabled()) {
+      try {
+        if (!isHonorEnabled()) {
+          const bal = await getBalance(userId);
+          return { success: true, message: 'Honor Points are disabled. Reward not added; progress still saved.', newBalance: bal };
+        }
+        const result = await add(userId, amount);
+        if (!result.success) {
+          return { success: false, message: result.error ?? 'Failed to add points.', newBalance: result.newBalance };
+        }
+        console.log(`[HonorPointService] User ${userId} earned ${amount} points for ${reason}. Balance: ${result.newBalance}`);
+        return {
+          success: true,
+          message: `You earned ${amount} Honor Points for ${reason}!`,
+          newBalance: result.newBalance ?? 0,
+        };
+      } catch (error) {
+        console.error('[HonorPointService] API add error:', error);
+        return { success: false, message: 'An error occurred while processing your request.' };
+      }
+    }
     if (!isDBConnected()) {
       return { success: false, message: 'Database not connected' };
     }
-
     try {
       const user = await User.findOne({ userId });
-
       if (!isHonorEnabled()) {
-        if (!user) {
-          return { success: false, message: 'User not found' };
-        }
-        return {
-          success: true,
-          message: `Honor Points are disabled. Reward not added; progress still saved.`,
-          newBalance: user.honorPoints,
-        };
+        if (!user) return { success: false, message: 'User not found' };
+        return { success: true, message: 'Honor Points are disabled. Reward not added; progress still saved.', newBalance: user.honorPoints };
       }
-
       if (!user) {
         return { success: false, message: 'User not found' };
       }
-
       user.honorPoints += amount;
       await user.save();
-
       console.log(`[HonorPointService] ${user.username} earned ${amount} points for ${reason}. Balance: ${user.honorPoints}`);
-
       return {
         success: true,
         message: `You earned ${amount} Honor Points for ${reason}!`,

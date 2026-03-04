@@ -623,8 +623,8 @@ export class MusicInteractionService {
       const lines: string[] = [
         '**How to use Phantom Radio**',
         '',
-        musicPlayerId ? `• **Vote to skip & view queue** — Go to <#${musicPlayerId}> for Vote Skip, Now Playing, and View Queue.` : '',
-        songSelectionId ? `• **Full playlist & add songs** — Go to <#${songSelectionId}> to browse the playlist and add songs (Join Queue → Select Song when it's your turn; up to 5 songs per user, 20 max in queue).` : '',
+        musicPlayerId ? `• **Vote to skip & view queue** — Go to <#${musicPlayerId}> for Vote Skip (${SKIP_VOTES_REQUIRED} votes), Now Playing, and View Queue.` : '',
+        songSelectionId ? `• **Add songs** — Go to <#${songSelectionId}> and Join Queue → Select Song when it's your turn. Then choose an album, pick a song (use **Back to albums** to change album). Up to 5 songs per user, 20 max in queue.` : '',
       ].filter(Boolean);
 
       const embed = new EmbedBuilder()

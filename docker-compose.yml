@@ -14,13 +14,12 @@ services:
       - ./music:/app/music:ro
       # Export usage history มาที่โฟลเดอร์นี้ (รัน script ด้วย --out-dir /app/exports)
       - ./exports:/app/exports
-    # Connect to Honor Bot's network to share MongoDB
+    # ใช้ MongoDB ของ honor-points-service
     networks:
-      - honorbot-network
+      - honor-points-network
     # No port exposed - Discord bot doesn't need web server
 
 networks:
-  # Use external network from Honor Bot (check actual network name with: docker network ls)
-  honorbot-network:
+  honor-points-network:
     external: true
-    name: honorbot-pbz_default
+    name: honor-points-service_honor-points-network
