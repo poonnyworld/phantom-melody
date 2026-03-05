@@ -2,6 +2,8 @@
 
 A Discord music bot for Phantom Blade Zero community. Features a turn-based song selection queue system for fair music sharing.
 
+In multi-stack deployment (e.g. `start-all.sh` in dev), this is **Stack 5**; uses shared MongoDB and Honor Points API from **honor-points-service (Stack 1)** when configured.
+
 ## Screenshots
 
 ### Playlist Channel
